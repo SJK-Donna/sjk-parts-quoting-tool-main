@@ -186,7 +186,9 @@
       contacts: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/contacts').then(function (r) { return r || []; }); },
       // Deals (SPEC §9)
       dealSetup: function () { return request('GET', '/zoho/deal-setup'); },
-      accountDeals: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/deals'); },
+      accountDeals: function (accountId, contactId) {
+        return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/deals' + (contactId ? '?contact=' + encodeURIComponent(contactId) : ''));
+      },
       dealByNo: function (no) {
         return request('GET', '/zoho/deals/by-no?no=' + encodeURIComponent(no)).then(function (r) { if (!r) throw new Error('No deal ' + no + ' in Zoho.'); return r; });
       },
