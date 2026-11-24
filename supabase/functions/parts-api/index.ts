@@ -502,7 +502,10 @@ export async function handle(req) {
       // A failed create makes no record, so trying again is safe.
       const tryCreate = async (rec) => {
         try {
-          const c = await zoho("POST", "/Deals", { data: [rec], trigger: ["workflow"] });
+          // layout_rules: apply the layout's rules like the Zoho screen does. Service Layout New marks both
+          // Industry (B2B) and Industry (B2C) required and a layout rule shows only the one matching Business
+          // Type; without this, the API demands both.
+          const c = await zoho("POST", "/Deals", { data: [rec], trigger: ["workflow"], apply_feature_execution: [{ name: "layout_rules" }] });
           const x = (c.data || [])[0] || {};
           return x.code === "SUCCESS" ? { r: x } : { err: "Zoho: " + zohoErr(x), code: x.code, field: x.details && x.details.api_name };
         } catch (e) {
