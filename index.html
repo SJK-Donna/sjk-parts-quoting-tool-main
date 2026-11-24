@@ -273,7 +273,8 @@ const SHORT=["Tempo","Tempo ND","Onward","Prec 2019","Prec 2015","Prec 2009","CA
 let D=null,HAY=[],BYPN={},S=structuredClone(DEF),meta={},mode='sea',db=null,canEdit=null,shared=false,readOnly=false;
 let F={model:-1,cat:-1,q:'',unp:false},shown=150,open=null;
 const ls={get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-let Q=ls.get('sjk_quote',{lines:[],c:'',r:'',m:null});
+// Every page load starts with an empty quote (no parts, customer, contact or deal carried over).
+let Q={lines:[],c:'',r:'',m:null};ls.set('sjk_quote',Q);
 const SECS={find:'Find a part (sales)',quote:'Quote (sales)',setup:'Admin console'};
 const ADMIN=['setup','access','data'],VIEWS=['find','quote','setup','access','data'];
 const LK=t=>ADMIN.includes(t)?'setup':t;
@@ -580,6 +581,8 @@ function route(){let v=(location.hash||'#find').slice(1);if(v==='about')v='data'
 
 let qt;
 $('#q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{F.q=e.target.value.trim();shown=150;open=null;renderRes()},120)});
+// Browsers can refill typed text after a reload: put every field back to what the page holds (empty after a load).
+window.addEventListener('pageshow',()=>{$('#q').value=F.q;$('#unp').checked=F.unp;if($('#model').options.length)$('#model').value=String(F.model);if(D)renderQuote()});
 $('#clr').addEventListener('click',()=>{$('#q').value='';F={model:-1,cat:-1,q:'',unp:false};$('#model').value='-1';$('#unp').checked=false;shown=150;open=null;renderCats();renderRes()});
 $('#model').addEventListener('change',e=>{F.model=+e.target.value;F.cat=-1;shown=150;open=null;renderCats();renderRes()});
 $('#unp').addEventListener('change',e=>{F.unp=e.target.checked;renderCats();renderRes()});
