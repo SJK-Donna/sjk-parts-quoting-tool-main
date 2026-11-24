@@ -504,11 +504,16 @@ export async function handle(req) {
       const up = await zohoRaw("POST", "/files", form);
       const fileId = up?.data?.[0]?.details?.id;
       if (!fileId) return reply(502, { error: "Zoho: the PDF upload failed (" + zohoErr(up?.data?.[0] || up) + ")" });
-      const upd = await zoho("PUT", `/Deals/${dp[1]}`, { data: [{ Proposal_Upload: [{ file_id: fileId }] }] });
+      // API v8 file-upload fields take File_Id__s (the old "file_id" key is accepted but silently ignored).
+      const upd = await zoho("PUT", `/Deals/${dp[1]}`, { data: [{ Proposal_Upload: [{ File_Id__s: fileId }] }] });
       const r = (upd.data || [])[0] || {};
       if (r.code !== "SUCCESS") return reply(400, { error: "Zoho: " + zohoErr(r) });
       const d = await zoho("GET", `/Deals/${dp[1]}?fields=${DEAL_FIELDS}`);
-      return reply(200, { ...dealOut((d.data || [])[0] || { id: dp[1] }), fileId });
+      const deal = (d.data || [])[0] || { id: dp[1] };
+      const files = Array.isArray(deal.Proposal_Upload) ? deal.Proposal_Upload : [];
+      if (!files.some((f) => f && (f.File_Id__s === fileId || fileName(f) === name)))
+        return reply(502, { error: "Zoho accepted the update but the PDF is not in the deal's Proposal Upload field. Nothing else was changed." });
+      return reply(200, { ...dealOut(deal), fileId });
     }
 
     return reply(404, { error: "Not found" });
