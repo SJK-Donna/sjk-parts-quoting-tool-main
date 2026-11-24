@@ -499,9 +499,43 @@ export async function handle(req) {
       };
       const owner = await zohoUserId(me.email);
       if (owner) record.Owner = { id: owner };
-      const created = await zoho("POST", "/Deals", { data: [record], trigger: ["workflow"] });
-      const r = (created.data || [])[0] || {};
-      if (r.code !== "SUCCESS") return reply(400, { error: "Zoho: " + zohoErr(r) });
+      // A failed create makes no record, so trying again is safe.
+      const tryCreate = async (rec) => {
+        try {
+          const c = await zoho("POST", "/Deals", { data: [rec], trigger: ["workflow"] });
+          const x = (c.data || [])[0] || {};
+          return x.code === "SUCCESS" ? { r: x } : { err: "Zoho: " + zohoErr(x), code: x.code, field: x.details && x.details.api_name };
+        } catch (e) {
+          if (e.status !== 400) throw e;
+          const m = String(e.message).match(/^Zoho: ([A-Z_]+): (\w+)/);
+          return { err: e.message, code: m && m[1], field: m && m[2] };
+        }
+      };
+      let res = await tryCreate(record);
+      // If Zoho drops a dropdown value we filled in, try once more with Zoho's internal values (actual_value)
+      // for every dropdown where they differ from the screen names.
+      if (!res.r && res.field && PICKLIST_FIELDS.includes(res.field) && record[res.field] !== undefined) {
+        const alt = { ...record }; let changed = false;
+        for (const k of PICKLIST_FIELDS) {
+          if (alt[k] === undefined) continue;
+          const lab = (setup.labels && setup.labels[k]) || {};
+          const toActual = (v) => Object.keys(lab).find((a) => lab[a] === v) ?? v;
+          const nv = Array.isArray(alt[k]) ? alt[k].map(toActual) : toActual(alt[k]);
+          if (JSON.stringify(nv) !== JSON.stringify(alt[k])) { alt[k] = nv; changed = true; }
+        }
+        if (changed) { console.log("deal create: retrying with actual_values after", res.err); const res2 = await tryCreate(alt); if (res2.r || !res2.field) res = res2; else res = { ...res2, sent: alt }; }
+      }
+      if (!res.r) {
+        const sent = res.sent || record;
+        console.error("deal create failed:", res.err, JSON.stringify(sent));
+        if (res.field && sent[res.field] !== undefined) {
+          const label = (setup.fieldLabels && setup.fieldLabels[res.field]) || res.field;
+          const opts = (setup.picklists && setup.picklists[res.field]) || [];
+          return reply(400, { error: `Zoho didn't accept ${label} = "${[].concat(sent[res.field]).join(", ")}" (${res.code || "error"}).` + (opts.length ? ` Options in this Zoho: ${opts.slice(0, 20).join(" · ")}.` : "") + " Send this message to your admin." });
+        }
+        return reply(400, { error: res.err });
+      }
+      const r = res.r;
       const d = await zoho("GET", `/Deals/${r.details.id}?fields=${DEAL_FIELDS}`);
       return reply(200, { ...dealOut((d.data || [])[0] || { id: r.details.id }), created: true, ownerSet: !!owner });
     }

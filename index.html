@@ -82,10 +82,16 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--panel)}
 .qdeal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:4px 0 12px}
 .qdeal .qbar{margin-bottom:2px}.qdeal label.wide{flex:2 1 340px}.qdeal select{min-width:0}
 .dno{display:flex;gap:6px}.dno input{width:150px}.dno .add{min-height:44px}
-.ndgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 12px;margin-top:6px}
-.ndgrid>label{font-size:13px;color:var(--mut);display:grid;gap:4px}
-.chks{display:flex;flex-wrap:wrap;gap:4px 12px;min-height:44px;align-items:center}
-.chks label{display:flex;gap:6px;align-items:center;color:var(--ink);font-size:14px}
+.ndform{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px 14px;margin-top:8px}
+.ndh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 0 2px;font-size:15px}.ndh span{font-size:12px;font-weight:400;color:var(--mut)}
+.ndform fieldset{border:0;border-top:1px solid var(--line);margin:0;padding:8px 0 12px}.ndform fieldset:last-of-type{padding-bottom:4px}
+.ndform legend{float:left;width:100%;margin:0 0 6px;padding:0;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+.ndrow{clear:both;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 14px}
+.ndrow>label{font-size:13px;color:var(--mut);display:grid;gap:4px;align-content:start}.ndrow select,.ndrow input{height:44px;width:100%}
+.ndform .rq{color:var(--brown);font-weight:700}
+.ndradio{clear:both;display:flex;flex-wrap:wrap;gap:8px}
+.ndradio label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:999px;background:var(--bg);font-size:14px;cursor:pointer}
+.ndradio label:has(input:checked){border-color:var(--ink);background:var(--sea);font-weight:600}.ndradio input{margin:0;accent-color:var(--ink)}
 .ndauto{font-size:13px;color:var(--mut);margin:8px 0 0}.qbar2 label{flex:1 1 160px;max-width:220px}.qbar2 label.wide{flex:2 1 280px;max-width:420px}
 .qtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
 .qtot div{background:var(--panel);border-radius:10px;padding:12px 14px}.qtot b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.qtot small{color:var(--mut)}
@@ -666,19 +672,21 @@ function newDealDefaults(){
  const d=(AD&&AD.defaults)||{},pl=(DS&&DS.picklists)||{},pick=(k,v)=>(pl[k]||[]).includes(v)?v:'';
  const parts=(Q.ad||'').split(',').map(x=>x.trim()).filter(Boolean);
  return {Type:pick('Type',AD&&AD.hasClosedWon?'Existing Business':'New Business'),Business_Type:d.Business_Type||'',Industry_B2B:d.Industry_B2B||'',Industry_B2C:d.Industry_B2C||'',
-  SJK_Office_Location:Array.isArray(d.SJK_Office_Location)?d.SJK_Office_Location:[],GO_Chance:pick('GO_Chance','50%')||d.GO_Chance||'',GET_Chance:pick('GET_Chance','50%')||d.GET_Chance||'',
+  SJK_Office_Location:Array.isArray(d.SJK_Office_Location)?d.SJK_Office_Location.slice(0,1):[],GO_Chance:pick('GO_Chance','50%')||d.GO_Chance||'',GET_Chance:pick('GET_Chance','50%')||d.GET_Chance||'',
   Lead_Source:d.Lead_Source||(AD&&AD.hasClosedWon?pick('Lead_Source','Repeat Client'):''),Street:d.Street||parts[0]||'',City:d.City||parts.slice(1).join(', ')};
 }
 function renderNewDeal(){
  const box=$('#qdnew');if(!(Q.deal&&!Q.deal.id)){box.hidden=true;return}
  box.hidden=false;if(!Q.nd){Q.nd=newDealDefaults();saveQ()}const nd=Q.nd,pl=(DS&&DS.picklists)||{};
- const sel=(k,label)=>`<label>${label}<select data-nd="${k}"><option value="">Choose…</option>${(pl[k]||[]).map(o=>`<option ${nd[k]===o?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
- const ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B';
- box.innerHTML=`<div class="ndgrid">${sel('Type','Type of client')}${sel('Business_Type','Business type')}${sel(ind,'Industry')}
-  <label>SJK office<span class="chks">${(pl.SJK_Office_Location||[]).map(o=>`<label><input type="checkbox" data-ndo="${esc(o)}" ${(nd.SJK_Office_Location||[]).includes(o)?'checked':''}>${esc(o)}</label>`).join('')}</span></label>
-  ${sel('GO_Chance','GO chance')}${sel('GET_Chance','GET chance')}${sel('Lead_Source','Lead source')}
-  <label>Street<input type="text" data-nd="Street" value="${esc(nd.Street||'')}"></label><label>City<input type="text" data-nd="City" value="${esc(nd.City||'')}"></label></div>
-  <p class="ndauto">Set automatically: Pipeline <b>Spare Parts</b> · Stage <b>Proposal/Price Quote</b> · Unit offered <b id="ndunit">${esc(unitOffered())}</b> · Amount = total incl. VAT · Closing date = valid-until · Deal owner = you.</p>`;
+ const RQ=' <span class="rq" aria-hidden="true">*</span>';
+ const sel=(k,label,req)=>`<label><span>${label}${req?RQ:''}</span><select data-nd="${k}" ${req?'required':''}><option value="">Choose…</option>${(pl[k]||[]).map(o=>`<option ${nd[k]===o?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
+ const ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B',office=(nd.SJK_Office_Location||[])[0]||'';
+ box.innerHTML=`<div class="ndform"><h3 class="ndh">New deal details<span><span class="rq">*</span> required</span></h3>
+  <fieldset><legend>Client</legend><div class="ndrow">${sel('Type','Type of client',1)}${sel('Business_Type','Business type',1)}${sel(ind,'Industry',1)}</div></fieldset>
+  <fieldset><legend>SJK office${RQ}</legend><div class="ndradio" role="radiogroup" aria-label="SJK office">${(pl.SJK_Office_Location||[]).map(o=>`<label><input type="radio" name="ndoffice" data-ndr="${esc(o)}" ${office===o?'checked':''}>${esc(o)}</label>`).join('')}</div></fieldset>
+  <fieldset><legend>Chances</legend><div class="ndrow">${sel('GO_Chance','GO chance',1)}${sel('GET_Chance','GET chance',1)}${sel('Lead_Source','Lead source')}</div></fieldset>
+  <fieldset><legend>Site address</legend><div class="ndrow"><label><span>Street${RQ}</span><input type="text" data-nd="Street" required value="${esc(nd.Street||'')}"></label><label><span>City${RQ}</span><input type="text" data-nd="City" required value="${esc(nd.City||'')}"></label></div></fieldset>
+  <p class="ndauto">Set automatically: Pipeline <b>Spare Parts</b> · Stage <b>Proposal/Price Quote</b> · Unit offered <b id="ndunit">${esc(unitOffered())}</b> · Amount = total incl. VAT · Closing date = valid-until · Deal owner = you.</p></div>`;
 }
 function newDealPayload(p){
  const nd=Q.nd||{},ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B';
@@ -723,7 +731,7 @@ $('#qdsel').addEventListener('change',e=>{const v=e.target.value,deals=(AD&&AD.d
  saveQ();renderDeal()});
 $('#qdnew').addEventListener('change',e=>{const t=e.target;if(!Q.nd)return;
  if(t.dataset.nd){Q.nd[t.dataset.nd]=t.value;if(t.dataset.nd==='Business_Type'){saveQ();renderNewDeal();return}}
- if(t.dataset.ndo){const s=new Set(Q.nd.SJK_Office_Location||[]);t.checked?s.add(t.dataset.ndo):s.delete(t.dataset.ndo);Q.nd.SJK_Office_Location=[...s]}
+ if(t.dataset.ndr!==undefined&&t.checked)Q.nd.SJK_Office_Location=[t.dataset.ndr];   // one office per deal
  saveQ()});
 $('#qdnew').addEventListener('input',e=>{const t=e.target;if(Q.nd&&t.dataset.nd&&t.tagName==='INPUT'){Q.nd[t.dataset.nd]=t.value;saveQ()}});
 $('#qdfind').addEventListener('click',async()=>{
