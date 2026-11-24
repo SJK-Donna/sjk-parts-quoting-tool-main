@@ -79,6 +79,11 @@ body.admin .apptag{background:#e0965c;color:#2b1a0e}
 body:not(.admin) #salesl,body.admin .seg,body.admin #nav-sales,body:not(.admin) #nav-admin{display:none}
 #adminl{color:#bfe3ee;font-weight:600;text-decoration:none;border:1.5px solid #bfe3ee;border-radius:10px;padding:10px 14px;white-space:nowrap}
 body:not(.can-edit) #adminl,body.admin #adminl{display:none}
+#pdfm{position:fixed;inset:0;z-index:40;background:rgba(19,36,46,.55);display:flex;flex-direction:column;padding:2vh 2vw}
+#pdfm[hidden]{display:none}
+.pdfbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--card);border-radius:12px 12px 0 0;padding:10px 14px}
+.pdfbar b{font-size:18px;margin-right:auto}.pdfbar .meta{margin:0}
+#pdff{flex:1;width:100%;border:0;background:#e9ece6;border-radius:0 0 12px 12px}
 .lockbox{max-width:440px;margin:6vh auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px}
 .lockbox form{display:flex;gap:10px;margin-top:14px}.lockbox h2{font-size:26px}
 .lk{width:46px;height:46px;border-radius:12px;background:var(--sea);display:grid;place-items:center;margin-bottom:14px}
@@ -138,13 +143,18 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
   <label>Customer<input type="text" id="qc" placeholder="e.g. Valley Golf"></label>
   <label>Reference<input type="text" id="qr" placeholder="e.g. Cart #12 brake job"></label>
   <label>Margin %<input type="number" id="qm" step="1" style="width:100px"></label>
-  <button class="add" id="cpc">Copy for customer</button><button class="add ghost" id="cpi">Copy with costing</button><button class="add ghost" id="qclear">Clear quote</button>
+  <button class="add" id="cpc">Copy for customer</button><button class="add ghost" id="cpi">Copy with costing</button><button class="add ghost" id="cpp">Preview PDF</button><button class="add ghost" id="qclear">Clear quote</button>
  </div>
  <div id="qwarn"></div>
  <table class="rt"><thead><tr><th>Part no.</th><th>Description</th><th class="num">Qty</th><th class="num" id="kgh">Kg / unit</th><th class="num hm">Landed / unit</th><th class="num">Price / unit</th><th class="num">Line total</th><th></th></tr></thead><tbody id="ql"></tbody></table>
  <div class="qtot" id="qt"></div>
  <div id="cpbox"></div>
 </section>
+<div id="pdfm" hidden role="dialog" aria-modal="true" aria-labelledby="pdft">
+ <div class="pdfbar"><b id="pdft">Proposal preview</b><span class="meta" id="pdfst"></span>
+  <button class="add" id="pdfdl">Download PDF</button><button class="add ghost" id="pdfx">Close</button></div>
+ <iframe id="pdff" title="Proposal preview"></iframe>
+</div>
 
 <section class="view" id="v-setup">
  <div id="setmsg"></div>
@@ -175,6 +185,8 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="backend.js"></script>
+<script src="js/proposal.js"></script>
+<script src="js/pdf.js"></script>
 <script>
 {
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -301,6 +313,48 @@ function quoteTSV(internal){
  return [...head,h.join('\t'),...lines,...tail].join('\n');
 }
 
+/* ---------- PDF proposal (layout of "Sample Proposal - SP-GC-07680-v1.pdf"; js/proposal.js + js/pdf.js) ----------
+   Shows selling prices only — never dealer cost, landed cost, margin, freight or duty. */
+const PROPOSAL={validityDays:15,leadSea:'est. 8–12 weeks',leadAir:'est. 2–3 weeks',
+ company:{brand:'Golf Carts PH',legal:'SJK GUAHAN INC.',address:'1877 Paz M. Guazon cor. Pres. Quirino Ave, Paco, Manila 1007',phone:'',email:'',tin:'',footer:'Golf Carts PH · SJK Guahan Inc.'},
+ terms:['Prices are in Philippine Pesos. Unit prices exclude VAT; the total includes 12% VAT.',
+  'This proposal is valid for {validity} days. Prices are based on the exchange rate on the proposal date and may change after the validity date.',
+  'Delivery: sea freight about 8–12 weeks, air freight about 2–3 weeks, from receipt of confirmed PO and payment. Subject to Club Car stock availability.',
+  'Payment: full payment upon order confirmation unless otherwise agreed in writing.',
+  'Parts are covered by the Club Car parts warranty. Wear-and-tear items and damage from improper installation are excluded.',
+  'Installation and labour are not included unless listed above.'].join('\n')};
+let pdfDoc=null;
+function buildProposal(){
+ const rows=qrows();if(!rows.length)return {err:'Add at least one part to the quote first.'};
+ if(!Q.c.trim())return {err:'Type the customer name first — it is printed on the proposal.'};
+ const r2=v=>Math.round((v+Number.EPSILON)*100)/100,iso=d=>d.toLocaleDateString('en-CA');
+ const today=new Date(),until=new Date(today.getTime()+PROPOSAL.validityDays*864e5);
+ const lines=rows.map(({l,r,b})=>({pn:r[0],desc:r[1],fits:r[6].map(i=>D.models[i][0]).join(', '),qty:l.qty,unitSell:b.sell}));
+ const sub=r2(lines.reduce((t,x)=>t+x.unitSell*x.qty,0)),vat=r2(sub*0.12);
+ const B=window.SJK_BACKEND,u=B&&B.user?B.user():null;
+ const q={customer:{account:{Account_Name:Q.c.trim()}},reference:Q.r.trim(),model:null,deal:null,zoho:{}};
+ const ver={no:'SP-DRAFT-'+iso(today).replace(/-/g,''),date:iso(today),validUntil:iso(until),lines,totals:{sub,vat,total:r2(sub+vat)},mode,approval:null};
+ const rep=u?{name:u.name||u.email,email:u.email,title:'',mobile:''}:null;
+ return {q,ver,html:Proposal.render(q,ver,PROPOSAL,rep),name:Proposal.fileName(q,ver),footer:Proposal.footer(PROPOSAL,ver)};
+}
+function previewPdf(){
+ if(!window.Proposal){$('#cpbox').innerHTML='<p class="meta">The proposal layout could not load. Reload the page.</p>';return}
+ const p=buildProposal();if(p.err){$('#cpbox').innerHTML=`<div class="warn">${esc(p.err)}</div>`;return}
+ pdfDoc=p;$('#cpbox').innerHTML='';
+ $('#pdft').textContent=p.ver.no;$('#pdfst').textContent=qm()<S.floor?`Margin ${qm()}% is below the ${S.floor}% floor — get approval before sending.`:'';
+ $('#pdff').srcdoc=p.html;$('#pdfm').hidden=false;$('#pdfdl').disabled=false;$('#pdfdl').textContent='Download PDF';$('#pdfdl').focus();
+ if(window.ProposalPdf)window.ProposalPdf.loadLibs().catch(()=>{});
+}
+async function downloadPdf(){
+ if(!pdfDoc)return;const btn=$('#pdfdl');btn.disabled=true;btn.textContent='Making PDF…';
+ try{const blob=await window.ProposalPdf.make(pdfDoc.html,pdfDoc.footer);
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=pdfDoc.name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),60000);btn.textContent='Downloaded ✓'}
+ catch(e){btn.textContent='Download PDF';$('#pdfst').textContent='Could not make the PDF: '+(e.message||e)}
+ finally{btn.disabled=false}
+}
+const closePdf=()=>{$('#pdfm').hidden=true;$('#pdff').srcdoc='';$('#cpp').focus()};
+
 /* ---------- setup ---------- */
 const FORM=[
  ['Forex',[['fx','USD → PHP rate','PHP per USD',0.01],['fxBuf','Forex buffer','PHP added per USD, for safety',0.01]]],
@@ -418,6 +472,10 @@ $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.va
 $('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML=''});
 $('#cpc').addEventListener('click',()=>copyText(quoteTSV(false)));
 $('#cpi').addEventListener('click',()=>copyText(quoteTSV(true)));
+$('#cpp').addEventListener('click',previewPdf);
+$('#pdfdl').addEventListener('click',downloadPdf);
+$('#pdfx').addEventListener('click',closePdf);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#pdfm').hidden)closePdf()});
 $('#save').addEventListener('click',saveSettings);
 $('#reset').addEventListener('click',()=>{if(readOnly)return;S=structuredClone(DEF);renderSetup();$('#savest').textContent='Defaults loaded — press Save to apply.'});
 $('#sform').addEventListener('input',()=>{if(readOnly)return;const keep=S;S=readForm();const smp=['S','Sample',100,null,0,0,[],[]];const b1=calc(smp,2,undefined,'sea'),b2=calc(smp,2,undefined,'air');$('#prev').innerHTML=`<p class="meta" style="margin:0">Sea</p>${stack(b1)}<p class="meta">Landed ${php(b1.landed)} → selling ${php(b1.sell)}</p><p class="meta" style="margin:14px 0 0">Air</p>${stack(b2)}<p class="meta">Landed ${php(b2.landed)} → selling ${php(b2.sell)}</p>`;S=keep;$('#savest').textContent='Unsaved changes'});

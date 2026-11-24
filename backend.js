@@ -152,6 +152,7 @@
       return request('POST', '/unlock', { section: section, password: password })
         .then(function (r) { return (r && r.sections) || []; }, function () { return []; });
     },
-    signOut: function () { signedOut(); }
+    signOut: function () { signedOut(); },
+    user: function () { return me; }      // { email, name, role } of the signed-in person (for "Prepared by")
   };
 })();
