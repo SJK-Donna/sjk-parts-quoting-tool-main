@@ -77,5 +77,15 @@ alter table public.unlock_failures  enable row level security;
 drop policy if exists "profiles: read own" on public.profiles;
 create policy "profiles: read own" on public.profiles for select to authenticated using (id = auth.uid());
 
+-- Table permissions (this project doesn't grant them automatically). The row rules above still apply:
+-- signed-in people may only SELECT profiles, and only their own row. The browser gets nothing else.
+grant usage on schema public to authenticated, service_role;
+grant select on public.profiles to authenticated;
+revoke all on public.shared_settings, public.settings_history, public.unlock_failures from anon, authenticated;
+revoke insert, update, delete on public.profiles from anon, authenticated;
+-- The parts-api function (service role) needs full access to its tables.
+grant all on public.profiles, public.shared_settings, public.settings_history, public.unlock_failures to service_role;
+grant usage, select on all sequences in schema public to service_role;
+
 -- Not used any more (sign-in replaced it). Safe to keep or delete:
 -- drop table if exists public.unlock_tokens;

@@ -24,7 +24,7 @@
   'use strict';
   var CONFIG = {
     supabaseUrl: 'https://pitfqmvanfnaxsdajhzr.supabase.co',
-    anonKey: '',          // ← paste the publishable / anon public key here
+    anonKey: 'sb_publishable_RzgLVPOx8-0x3RzMeBSP0g_AlJUkWnr',   // publishable key (public by design)
     pollSeconds: 15,      // how often open screens check for costing/password changes
     partsUrl: ''          // optional: serve parts_data.json from the backend instead of data/parts_data.json
   };
