@@ -472,7 +472,8 @@ async function downloadPdf(){
  catch(e){btn.textContent='Download PDF';$('#pdfst').textContent='Could not make the PDF: '+(e.message||e)}
  finally{btn.disabled=false}
 }
-const closePdf=()=>{$('#pdfm').hidden=true;$('#pdff').srcdoc='';$(pdfDoc&&pdfDoc.kind==='costing'?'#cpi':'#cpc').focus()};
+let resetOnClose=false;   // after a successful Zoho attach, closing the preview starts a fresh quote
+const closePdf=()=>{$('#pdfm').hidden=true;$('#pdff').srcdoc='';$(pdfDoc&&pdfDoc.kind==='costing'?'#cpi':'#cpc').focus();if(resetOnClose){resetOnClose=false;clearQuote()}};
 
 /* ---------- setup ---------- */
 const FORM=[
@@ -711,7 +712,7 @@ async function sendToZoho(){
   b.textContent='Attaching to Zoho…';const r=await ZB().attachProposal(Q.deal.id,p.name,blob);
   if(!r||!r.fileId)throw new Error('Zoho did not confirm the upload.');
   Q.deal.proposals=r&&r.proposals&&r.proposals.length?r.proposals:[...(Q.deal.proposals||[]),p.name];saveQ();renderDeal();
-  st.textContent=`${p.ver.no} attached to Zoho deal ${Q.deal.no} ✓`;b.textContent='Attached ✓';
+  st.textContent=`${p.ver.no} attached to Zoho deal ${Q.deal.no} ✓ Close to start a new quote.`;b.textContent='Attached ✓';resetOnClose=true;
  }catch(e){st.textContent=(e.message||String(e))+' — the quote is kept here; press Try again.';b.disabled=false;b.textContent='Try again'}
 }
 $('#pdfzoho').addEventListener('click',sendToZoho);
@@ -745,7 +746,8 @@ $('#qc').addEventListener('input',e=>{Q.c=e.target.value;$('#cpbox').innerHTML='
 $('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
 $('#qmore').addEventListener('input',e=>{const k=e.target.dataset.q;if(k){Q[k]=e.target.value;saveQ()}});
 $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.value;saveQ();renderQuote()});
-$('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;$('#qdeal').hidden=true;closeAcc()});
+function clearQuote(){Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;$('#qdeal').hidden=true;closeAcc()}
+$('#qclear').addEventListener('click',clearQuote);
 /* Golden rule 2: a signed-in sales rep can't send a below-minimum quote to the customer; an admin (the approver) can. */
 const needsApproval=()=>canEdit===false&&qm()<S.floor;
 $('#cpc').addEventListener('click',()=>previewPdf('customer'));
