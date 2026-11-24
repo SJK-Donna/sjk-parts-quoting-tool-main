@@ -16,7 +16,8 @@
 //   POST /users/:id/password set a new password                               admins only
 //   GET  /parts              the price list (parts_data.json)                 any signed-in person
 //   PUT  /parts              upload a new price list                          admins only
-//   GET  /zoho/status        → { configured }                                  any signed-in person
+//   GET  /zoho/status        → { configured, environment }
+//   POST /zoho/connect       { code } from api-console.zoho.com → stores a new Zoho login (admins only)                                  any signed-in person
 //   GET  /zoho/accounts?search=word → [{ id, name, address, phone }]          Zoho CRM Accounts
 //   GET  /zoho/deal-setup    picklists + layout id for a new deal            any signed-in person
 //   GET  /zoho/accounts/:id/deals  the account's Spare Parts deals + defaults for a new one
@@ -88,26 +89,39 @@ const ZOHO = {
   api: (Deno.env.get("ZOHO_API_DOMAIN") || "https://www.zohoapis.com").replace(/\/$/, ""),
 };
 ZOHO.sandbox = /sandbox/i.test(ZOHO.api);
-ZOHO.refresh = (ZOHO.sandbox ? Deno.env.get("ZOHO_SANDBOX_REFRESH_TOKEN") : "") || Deno.env.get("ZOHO_REFRESH_TOKEN") || "";
+const ZOHO_ENV = ZOHO.sandbox ? "sandbox" : "production";
+const ENV_REFRESH = (ZOHO.sandbox ? Deno.env.get("ZOHO_SANDBOX_REFRESH_TOKEN") : "") || Deno.env.get("ZOHO_REFRESH_TOKEN") || "";
+// A code pasted in the admin console (POST /zoho/connect) is stored in zoho_cache and takes priority over the secret.
+let refreshMem = null;
+async function zohoRefresh() {
+  if (refreshMem && refreshMem.exp > Date.now()) return refreshMem.v;
+  const rows = await db("GET", `/zoho_cache?name=eq.refresh_${ZOHO_ENV}&select=value`);
+  const v = (rows && rows[0] && rows[0].value) || ENV_REFRESH;
+  refreshMem = { v, exp: Date.now() + 60000 };
+  return v;
+}
+const tokenHash = (t) => [...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
 // Cache key per environment AND per login, so a new refresh token (e.g. with more scopes) takes effect at once.
-const ZOHO_CACHE = (ZOHO.sandbox ? "access_token_sandbox_" : "access_token_") + [...ZOHO.refresh].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
-const zohoConfigured = () => !!(ZOHO.id && ZOHO.secret && ZOHO.refresh);
-let zohoMem = { token: "", exp: 0 };
+let ZOHO_CACHE = "access_token_" + ZOHO_ENV;
+const zohoConfigured = async () => !!(ZOHO.id && ZOHO.secret && (await zohoRefresh()));
+let zohoMem = { token: "", exp: 0, key: "" };
 async function zohoToken() {
-  if (zohoMem.token && Date.now() < zohoMem.exp) return zohoMem.token;
+  const refresh = await zohoRefresh();
+  ZOHO_CACHE = `access_token_${ZOHO_ENV}_${tokenHash(refresh)}`;
+  if (zohoMem.token && zohoMem.key === ZOHO_CACHE && Date.now() < zohoMem.exp) return zohoMem.token;
   // Shared cache in the database: Zoho allows only a few new access tokens per 10 minutes.
   const rows = await db("GET", `/zoho_cache?name=eq.${ZOHO_CACHE}&select=value,expires_at`);
   if (rows && rows[0] && new Date(rows[0].expires_at).getTime() > Date.now() + 60000) {
-    zohoMem = { token: rows[0].value, exp: new Date(rows[0].expires_at).getTime() - 60000 };
+    zohoMem = { token: rows[0].value, exp: new Date(rows[0].expires_at).getTime() - 60000, key: ZOHO_CACHE };
     return zohoMem.token;
   }
-  const q = new URLSearchParams({ refresh_token: ZOHO.refresh, client_id: ZOHO.id, client_secret: ZOHO.secret, grant_type: "refresh_token" });
+  const q = new URLSearchParams({ refresh_token: refresh, client_id: ZOHO.id, client_secret: ZOHO.secret, grant_type: "refresh_token" });
   const res = await fetch(`${ZOHO.accounts}/oauth/v2/token?${q}`, { method: "POST" });
   const j = await res.json().catch(() => ({}));
   if (!j.access_token) throw Object.assign(new Error("Zoho sign-in failed: " + (j.error || res.status)), { status: 502 });
   const exp = Date.now() + (Number(j.expires_in) || 3600) * 1000;
   await db("POST", "/zoho_cache", { name: ZOHO_CACHE, value: j.access_token, expires_at: new Date(exp).toISOString() }, "resolution=merge-duplicates");
-  zohoMem = { token: j.access_token, exp: exp - 60000 };
+  zohoMem = { token: j.access_token, exp: exp - 60000, key: ZOHO_CACHE };
   return zohoMem.token;
 }
 const zohoErr = (r) => !r ? "no answer" : [r.code, r.details && (r.details.api_name || (r.details.expected_data_type && "expected " + r.details.expected_data_type)), r.message].filter(Boolean).join(": ");
@@ -364,8 +378,32 @@ export async function handle(req) {
     }
 
     // ---------- Zoho CRM customers ----------
-    if (path === "/zoho/status" && req.method === "GET") return reply(200, { configured: zohoConfigured() });
-    if (path.startsWith("/zoho/") && !zohoConfigured()) return reply(503, { error: "Zoho CRM is not connected yet." });
+    if (path === "/zoho/status" && req.method === "GET") return reply(200, { configured: await zohoConfigured(), environment: ZOHO_ENV });
+    // Admins connect Zoho by pasting a code from api-console.zoho.com (Self Client → Generate Code).
+    // The stored Client ID/Secret do the exchange; the new login is tested before it replaces the old one.
+    if (path === "/zoho/connect" && req.method === "POST") {
+      if (!admin) return reply(403, { error: "Only admins can connect Zoho." });
+      if (!ZOHO.id || !ZOHO.secret) return reply(400, { error: "ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET are not set in Supabase yet (supabase/README.md)." });
+      const code = String((await readJson(req)).code || "").trim();
+      if (!/^1000\.[0-9a-f]{10,}\.[0-9a-f]{10,}$/i.test(code)) return reply(400, { error: "That doesn't look like a Zoho code. It starts with 1000. and has two dots." });
+      const q = new URLSearchParams({ grant_type: "authorization_code", client_id: ZOHO.id, client_secret: ZOHO.secret, code });
+      const res = await fetch(`${ZOHO.accounts}/oauth/v2/token?${q}`, { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (!j.refresh_token) return reply(400, { error: j.error === "invalid_code" ? "Zoho says this code was already used or has expired. Generate a new one and paste it within 10 minutes."
+        : j.error === "invalid_client" ? "Zoho doesn't accept the Client ID / Secret stored in Supabase. Check ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET."
+        : "Zoho didn't accept the code (" + (j.error || res.status) + "). Generate a new one and try again." });
+      const t = await fetch(ZOHO.api + "/crm/v8/settings/layouts?module=Deals", { headers: { Authorization: "Zoho-oauthtoken " + j.access_token } });
+      if (!t.ok) {
+        const tj = await t.json().catch(() => ({}));
+        return reply(400, { error: /environment/i.test(JSON.stringify(tj))
+          ? `This code is for the other Zoho environment. The tool is set to ${ZOHO_ENV === "sandbox" ? "the Sandbox" : "production"}: generate the code again and choose ${ZOHO_ENV === "sandbox" ? "the Sandbox (sjkguahan)" : "your production organisation"}.`
+          : "Zoho refused the new login: " + (tj.message || tj.code || t.status) + ". Nothing was changed." });
+      }
+      await db("POST", "/zoho_cache", { name: `refresh_${ZOHO_ENV}`, value: j.refresh_token, expires_at: "2100-01-01T00:00:00Z" }, "resolution=merge-duplicates");
+      refreshMem = null; zohoMem = { token: "", exp: 0, key: "" }; setupMem = null; usersMem = null;
+      return reply(200, { ok: true, environment: ZOHO_ENV });
+    }
+    if (path.startsWith("/zoho/") && !(await zohoConfigured())) return reply(503, { error: "Zoho CRM is not connected yet." });
 
     if (path === "/zoho/accounts" && req.method === "GET") {
       const word = (new URL(req.url).searchParams.get("search") || "").trim();

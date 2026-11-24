@@ -180,6 +180,8 @@
         if (!window.SJK_BACKEND.shared) return Promise.resolve(false);
         return request('GET', '/zoho/status').then(function (r) { return !!(r && r.configured); }, function () { return false; });
       },
+      status: function () { return request('GET', '/zoho/status'); },
+      connect: function (code) { return request('POST', '/zoho/connect', { code: code }); },
       searchAccounts: function (word) { return request('GET', '/zoho/accounts?search=' + encodeURIComponent(word)).then(function (r) { return r || []; }); },
       contacts: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/contacts').then(function (r) { return r || []; }); },
       // Deals (SPEC §9)
