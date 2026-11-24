@@ -165,19 +165,25 @@ const dealOut = (d) => ({
 let setupMem = null;
 async function dealSetup() {
   if (setupMem && setupMem.exp > Date.now()) return setupMem.v;
-  const key = ZOHO.sandbox ? "deal_setup_sandbox" : "deal_setup";
+  const key = ZOHO.sandbox ? "deal_setup2_sandbox" : "deal_setup2";
   const rows = await db("GET", `/zoho_cache?name=eq.${key}&select=value,expires_at`);
   if (rows && rows[0] && new Date(rows[0].expires_at).getTime() > Date.now()) {
     setupMem = { v: JSON.parse(rows[0].value), exp: new Date(rows[0].expires_at).getTime() };
     return setupMem.v;
   }
   const [fields, layouts] = await Promise.all([zoho("GET", "/settings/fields?module=Deals"), zoho("GET", "/settings/layouts?module=Deals")]);
-  const picklists = {};
+  // Zoho picklist options have a screen name (display_value) and an API value (actual_value) that can differ,
+  // e.g. Unit Offered "GCPH Wear & Tear" is stored as "Remanufactured". Records are written with the API value.
+  const picklists = {}, labels = {}, fieldLabels = {};
   for (const f of fields.fields || []) {
-    if (PICKLIST_FIELDS.includes(f.api_name)) picklists[f.api_name] = (f.pick_list_values || []).map((p) => p.actual_value).filter((v) => v && v !== "-None-");
+    if (!PICKLIST_FIELDS.includes(f.api_name)) continue;
+    const opts = (f.pick_list_values || []).filter((p) => p.actual_value && p.actual_value !== "-None-");
+    picklists[f.api_name] = opts.map((p) => p.actual_value);
+    labels[f.api_name] = Object.fromEntries(opts.map((p) => [p.actual_value, p.display_value || p.actual_value]));
+    fieldLabels[f.api_name] = f.field_label || f.api_name;
   }
   const lay = (layouts.layouts || []).find((l) => (l.name || "").trim().toLowerCase() === "service layout new");
-  const v = { picklists, layoutId: lay ? lay.id : null };
+  const v = { picklists, labels, fieldLabels, layoutId: lay ? lay.id : null };
   const exp = Date.now() + 6 * 3600000;
   await db("POST", "/zoho_cache", { name: key, value: JSON.stringify(v), expires_at: new Date(exp).toISOString() }, "resolution=merge-duplicates");
   setupMem = { v, exp };
@@ -467,8 +473,15 @@ export async function handle(req) {
       if (missing.length) return reply(400, { error: "Missing: " + missing.join(", ") });
       for (const [k, opts] of Object.entries(setup.picklists)) {     // values must match Zoho exactly
         const vals = Array.isArray(f[k]) ? f[k] : f[k] == null || f[k] === "" ? [] : [f[k]];
-        const bad = vals.find((v) => !opts.includes(v));
-        if (bad !== undefined) return reply(400, { error: `"${bad}" is not a ${k} value in Zoho.` });
+        const lab = (setup.labels && setup.labels[k]) || {};
+        // accept the API value, or a screen name (converted to its API value)
+        const fixed = vals.map((v) => opts.includes(v) ? v : (Object.keys(lab).find((a) => lab[a] === v) ?? null));
+        const bad = vals.find((v, i) => fixed[i] === null);
+        if (bad !== undefined) {
+          const field = (setup.fieldLabels && setup.fieldLabels[k]) || k;
+          return reply(400, { error: `Zoho's "${field}" list has no option "${bad}". Ask a Zoho admin to add it (Setup → Modules and Fields → Deals → ${field}), or pick another value.` });
+        }
+        if (vals.length) f[k] = Array.isArray(f[k]) ? fixed : fixed[0];
       }
       const record = {
         Layout: setup.layoutId ? { id: setup.layoutId } : undefined,

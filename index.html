@@ -638,6 +638,13 @@ function unitOffered(){
  const top=Object.keys(by).sort((a,b)=>by[b]-by[a])[0];
  return top==='Batteries & Charging'?'Battery':top==='Wheels & Tires'?'Tires':'GCPH Wear & Tear';
 }
+// Zoho stores picklist options under an API value that can differ from the name on screen
+// ("GCPH Wear & Tear" is stored as "Remanufactured"), so send the API value.
+const plLabel=(k,v)=>((DS&&DS.labels&&DS.labels[k])||{})[v]||v;
+function unitOfferedValue(){
+ const shown=unitOffered(),lab=(DS&&DS.labels&&DS.labels.Pick_List_6)||{};
+ return Object.keys(lab).find(a=>lab[a]===shown)||shown;
+}
 function nextVersion(){
  const re=new RegExp('^SP-'+String(Q.deal.no).replace(/[.*+?^${}()|[\]\\-]/g,'\\$&')+'-v(\\d+)','i');
  return Math.max(0,...(Q.deal.proposals||[]).map(n=>{const m=String(n).match(re);return m?+m[1]:0}))+1;
@@ -671,10 +678,10 @@ function newDealDefaults(){
 function renderNewDeal(){
  const box=$('#qdnew');if(!(Q.deal&&!Q.deal.id)){box.hidden=true;return}
  box.hidden=false;if(!Q.nd){Q.nd=newDealDefaults();saveQ()}const nd=Q.nd,pl=(DS&&DS.picklists)||{};
- const sel=(k,label)=>`<label>${label}<select data-nd="${k}"><option value="">Choose…</option>${(pl[k]||[]).map(o=>`<option ${nd[k]===o?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
+ const sel=(k,label)=>`<label>${label}<select data-nd="${k}"><option value="">Choose…</option>${(pl[k]||[]).map(o=>`<option value="${esc(o)}" ${nd[k]===o?'selected':''}>${esc(plLabel(k,o))}</option>`).join('')}</select></label>`;
  const ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B';
  box.innerHTML=`<div class="ndgrid">${sel('Type','Type of client')}${sel('Business_Type','Business type')}${sel(ind,'Industry')}
-  <label>SJK office<span class="chks">${(pl.SJK_Office_Location||[]).map(o=>`<label><input type="checkbox" data-ndo="${esc(o)}" ${(nd.SJK_Office_Location||[]).includes(o)?'checked':''}>${esc(o)}</label>`).join('')}</span></label>
+  <label>SJK office<span class="chks">${(pl.SJK_Office_Location||[]).map(o=>`<label><input type="checkbox" data-ndo="${esc(o)}" ${(nd.SJK_Office_Location||[]).includes(o)?'checked':''}>${esc(plLabel('SJK_Office_Location',o))}</label>`).join('')}</span></label>
   ${sel('GO_Chance','GO chance')}${sel('GET_Chance','GET chance')}${sel('Lead_Source','Lead source')}
   <label>Street<input type="text" data-nd="Street" value="${esc(nd.Street||'')}"></label><label>City<input type="text" data-nd="City" value="${esc(nd.City||'')}"></label></div>
   <p class="ndauto">Set automatically: Pipeline <b>Spare Parts</b> · Stage <b>Proposal/Price Quote</b> · Unit offered <b id="ndunit">${esc(unitOffered())}</b> · Amount = total incl. VAT · Closing date = valid-until · Deal owner = you.</p>`;
@@ -682,7 +689,7 @@ function renderNewDeal(){
 function newDealPayload(p){
  const nd=Q.nd||{},ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B';
  const fields={Deal_Name:`Spare Parts Proposal – ${Q.c.trim()} – ${Q.r.trim()||p.ver.date}`.slice(0,120),Type:nd.Type,Business_Type:nd.Business_Type,[ind]:nd[ind],
-  SJK_Office_Location:nd.SJK_Office_Location||[],Pick_List_6:unitOffered(),Amount:p.ver.totals.total,GO_Chance:nd.GO_Chance,GET_Chance:nd.GET_Chance,
+  SJK_Office_Location:nd.SJK_Office_Location||[],Pick_List_6:unitOfferedValue(),Amount:p.ver.totals.total,GO_Chance:nd.GO_Chance,GET_Chance:nd.GET_Chance,
   Street:(nd.Street||'').trim(),City:(nd.City||'').trim(),Closing_Date:p.ver.validUntil,Lead_Source:nd.Lead_Source||'',
   Description:`Proposal for ${Q.c.trim()}, ${p.ver.lines.length} line${p.ver.lines.length>1?'s':''}, ${mode==='air'?'Air':'Sea'} freight. Created by SJK Parts Quoting Tool.`};
  const need={Type:'Type of client',Business_Type:'Business type',[ind]:'Industry',GO_Chance:'GO chance',GET_Chance:'GET chance',Street:'Street',City:'City'};
