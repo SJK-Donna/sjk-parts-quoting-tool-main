@@ -165,20 +165,21 @@ const dealOut = (d) => ({
 let setupMem = null;
 async function dealSetup() {
   if (setupMem && setupMem.exp > Date.now()) return setupMem.v;
-  const key = ZOHO.sandbox ? "deal_setup2_sandbox" : "deal_setup2";
+  const key = ZOHO.sandbox ? "deal_setup3_sandbox" : "deal_setup3";
   const rows = await db("GET", `/zoho_cache?name=eq.${key}&select=value,expires_at`);
   if (rows && rows[0] && new Date(rows[0].expires_at).getTime() > Date.now()) {
     setupMem = { v: JSON.parse(rows[0].value), exp: new Date(rows[0].expires_at).getTime() };
     return setupMem.v;
   }
   const [fields, layouts] = await Promise.all([zoho("GET", "/settings/fields?module=Deals"), zoho("GET", "/settings/layouts?module=Deals")]);
-  // Zoho picklist options have a screen name (display_value) and an API value (actual_value) that can differ,
-  // e.g. Unit Offered "GCPH Wear & Tear" is stored as "Remanufactured". Records are written with the API value.
+  // Zoho picklist options have a screen name (display_value) and an internal actual_value that can differ,
+  // e.g. Unit Offered "GCPH Wear & Tear" has actual_value "Remanufactured". The records API reads and writes the
+  // SCREEN name (checked against production deals), so that's what the tool uses; labels maps actual → screen name.
   const picklists = {}, labels = {}, fieldLabels = {};
   for (const f of fields.fields || []) {
     if (!PICKLIST_FIELDS.includes(f.api_name)) continue;
     const opts = (f.pick_list_values || []).filter((p) => p.actual_value && p.actual_value !== "-None-");
-    picklists[f.api_name] = opts.map((p) => p.actual_value);
+    picklists[f.api_name] = opts.map((p) => p.display_value || p.actual_value);
     labels[f.api_name] = Object.fromEntries(opts.map((p) => [p.actual_value, p.display_value || p.actual_value]));
     fieldLabels[f.api_name] = f.field_label || f.api_name;
   }
@@ -474,8 +475,8 @@ export async function handle(req) {
       for (const [k, opts] of Object.entries(setup.picklists)) {     // values must match Zoho exactly
         const vals = Array.isArray(f[k]) ? f[k] : f[k] == null || f[k] === "" ? [] : [f[k]];
         const lab = (setup.labels && setup.labels[k]) || {};
-        // accept the API value, or a screen name (converted to its API value)
-        const fixed = vals.map((v) => opts.includes(v) ? v : (Object.keys(lab).find((a) => lab[a] === v) ?? null));
+        // accept a screen name, or an actual_value (converted to its screen name)
+        const fixed = vals.map((v) => opts.includes(v) ? v : (lab[v] ?? null));
         const bad = vals.find((v, i) => fixed[i] === null);
         if (bad !== undefined) {
           const field = (setup.fieldLabels && setup.fieldLabels[k]) || k;
