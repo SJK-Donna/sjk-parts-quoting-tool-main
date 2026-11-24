@@ -22,25 +22,29 @@ create table if not exists public.profiles (
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, name, role)
+  insert into public.profiles (id, email, name, role, active)
   values (new.id, lower(new.email),
           coalesce(nullif(new.raw_user_meta_data ->> 'name', ''), split_part(new.email, '@', 1)),
-          case when exists (select 1 from public.profiles where role = 'admin') then 'sales' else 'admin' end)
+          case when exists (select 1 from public.profiles where role = 'admin' and active) then 'sales' else 'admin' end,
+          true)
   on conflict (id) do nothing;
   return new;
 end $$;
+
+-- If the older schema.sql (full tool) was run, profiles exists with active defaulting to false. Fix that.
+alter table public.profiles alter column active set default true;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- People who were added before this script ran: give them a profile too (oldest becomes admin if there is none).
-insert into public.profiles (id, email, name, role)
-select u.id, lower(u.email), split_part(u.email, '@', 1), 'sales' from auth.users u
+insert into public.profiles (id, email, name, role, active)
+select u.id, lower(u.email), split_part(u.email, '@', 1), 'sales', true from auth.users u
 on conflict (id) do nothing;
-update public.profiles set role = 'admin'
+update public.profiles set role = 'admin', active = true
 where id = (select u.id from auth.users u join public.profiles p on p.id = u.id order by u.created_at limit 1)
-  and not exists (select 1 from public.profiles where role = 'admin');
+  and not exists (select 1 from public.profiles where role = 'admin' and active);
 
 -- ---------- the two shared records: 'current' (costing settings) and 'locks' (section passwords) ----------
 create table if not exists public.shared_settings (
