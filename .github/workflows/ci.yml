@@ -1,0 +1,21 @@
+# Runs the SPEC §5.3 pricing test cases on every push and pull request.
+# Deployment is done by Cloudflare Pages (see README → Deploy), not by this workflow.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pricing test cases (SPEC §5.3)
+        run: node tests/pricing.test.js
+      - name: Site build
+        run: sh scripts/build-site.sh

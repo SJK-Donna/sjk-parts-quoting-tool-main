@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SJK Parts Costing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a parts-counter tool — quick, sure, no fuss; numbers first.
+IDEA: a survey map: filters sit in a legend panel, the parts list is the land.
+PICTURE: the cost stack — one bar per part showing where every peso of the price goes.
+COLOUR and TYPE: Overpass 800/400; land #fbfbf2, sea #bfe3ee, ink #13242e, contour brown for duties, magenta for selling price.
+LAYOUT: header with Sea/Air switch; tabs; legend left + results right; stacks under 760px. */
+:root{color-scheme:light dark;--bg:light-dark(#fbfbf2,#0d1c24);--panel:light-dark(#eef4ec,#122630);--sea:light-dark(#bfe3ee,#17394a);--ink:light-dark(#13242e,#e6efee);--mut:light-dark(#56676f,#98abb2);--line:light-dark(#dcdfd2,#24414e);--brown:light-dark(#a8551b,#e0965c);--mag:light-dark(#d6127e,#ff62b3);--card:light-dark(#fff,#10232b);--fob:light-dark(#13242e,#d7e6ea);--fr:#3d8fb0;--ins:#8cc7d9;--brk:#c98a55;--misc:light-dark(#b9ad8a,#8f866a);--vat:#7a8a92}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Overpass,system-ui,sans-serif;overflow-x:clip}
+button,input,select{font:inherit;color:inherit}
+h1,h2,h3{font-weight:800;line-height:1.1;margin:0}
+.top{background:#13242e;color:#f3f7f4;padding:14px max(4vw,16px);display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
+.top h1{font-size:24px}.top small{display:block;color:#a9c3cc;font-size:13px;font-weight:400}
+.seg{display:inline-flex;border:1.5px solid #bfe3ee;border-radius:10px;overflow:hidden}
+.seg button{background:none;border:0;color:#bfe3ee;padding:9px 18px;min-height:44px;cursor:pointer;font-weight:600}
+.seg button.on{background:#bfe3ee;color:#13242e}
+.chip{font-size:13px;color:#cfe0e5}.chip b{color:#fff}
+nav{display:flex;gap:4px;padding:0 max(4vw,16px);background:var(--sea);overflow-x:auto}
+nav a{flex:none;padding:12px 16px;color:var(--ink);text-decoration:none;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
+nav a.on{border-color:var(--mag)}
+nav .n{background:var(--mag);color:#fff;border-radius:99px;padding:1px 8px;font-size:12px;margin-left:4px}
+main{max-width:1320px;margin:0 auto;padding:20px max(4vw,16px) 60px}
+.view{display:none}.view.on{display:block}
+.find{display:grid;grid-template-columns:270px minmax(0,1fr);gap:24px;align-items:start}
+.legend{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;position:sticky;top:12px}
+.legend h3{font-size:13px;color:var(--mut);font-weight:600;margin:14px 0 6px}.legend h3:first-child{margin-top:0}
+select,input[type=text],input[type=number],input[type=search]{width:100%;min-height:44px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--card);font-size:16px}
+:focus-visible{outline:3px solid var(--mag);outline-offset:2px}
+.cats{display:flex;flex-direction:column;gap:2px;max-height:52vh;overflow:auto}
+.cats button{display:flex;justify-content:space-between;gap:8px;background:none;border:0;padding:7px 8px;border-radius:6px;cursor:pointer;text-align:left;font-size:14px;min-height:36px}
+.cats button.on{background:var(--ink);color:var(--bg)}.cats button span{opacity:.65}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;margin-top:12px}
+.search{display:flex;gap:10px;margin-bottom:10px}.search input{font-size:18px;min-height:52px;padding:10px 14px}
+.meta{color:var(--mut);font-size:14px;margin:4px 0 10px}
+table{width:100%;border-collapse:collapse}
+th{font-size:13px;color:var(--mut);text-align:left;font-weight:600;padding:8px;border-bottom:2px solid var(--ink)}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+tr.row{cursor:pointer}tr.row:hover td{background:var(--panel)}
+.pn{font-weight:800;white-space:nowrap}.desc{font-size:15px}
+.tag{display:inline-block;font-size:12px;color:var(--mut);margin-top:2px}
+.sell{color:var(--mag);font-weight:800}
+.add{background:var(--ink);color:var(--bg);border:0;border-radius:8px;min-height:40px;padding:6px 14px;cursor:pointer;font-weight:600;white-space:nowrap}
+.add:disabled{opacity:.35;cursor:default}
+.ghost{background:none;border:1.5px solid var(--ink);color:var(--ink)}
+.det td{background:var(--panel);padding:16px}
+.stack{display:flex;height:34px;border-radius:6px;overflow:hidden;margin:6px 0 10px}
+.stack i{display:block;height:100%}
+.keys{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px}.keys span{display:flex;align-items:center;gap:6px;white-space:nowrap}.keys i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 24px;font-size:14px;margin-top:10px}
+.dgrid div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dotted var(--line);padding:3px 0}
+.big{font-size:clamp(26px,4vw,40px);font-weight:800;color:var(--mag);line-height:1}
+.qbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:14px}
+.qbar label{font-size:13px;color:var(--mut);display:grid;gap:4px}
+.qtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
+.qtot div{background:var(--panel);border-radius:10px;padding:12px 14px}.qtot b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.qtot small{color:var(--mut)}
+td input[type=number]{width:84px;min-height:38px;text-align:right}
+.warn{background:light-dark(#fde9f3,#3a1428);border-left:4px solid var(--mag);padding:10px 14px;border-radius:6px;font-size:14px;margin:10px 0}
+.note{background:var(--panel);border-left:4px solid var(--brown);padding:10px 14px;border-radius:6px;font-size:14px;margin:10px 0}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card h3{font-size:18px;margin-bottom:10px}
+.f{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;margin:6px 0;font-size:14px}
+.f small{display:block;color:var(--mut);font-size:12px}
+.save{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.empty{padding:40px;text-align:center;color:var(--mut)}
+pre.cp{white-space:pre;overflow:auto;background:var(--panel);padding:10px;font-size:13px;max-height:200px}
+.about p,.about li{max-width:72ch}
+body.admin .top{background:#3d220f}body.admin nav{background:light-dark(#f1e2cf,#2b1a0e)}body.admin nav a.on{border-color:var(--brown)}
+.apptag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.02em;background:#bfe3ee;color:#13242e;border-radius:4px;padding:1px 6px;margin-left:8px;vertical-align:4px}
+body.admin .apptag{background:#e0965c;color:#2b1a0e}
+#salesl{color:#f3d9c2;font-weight:600;text-decoration:none;border:1.5px solid #e0965c;border-radius:10px;padding:10px 14px;white-space:nowrap}
+body:not(.admin) #salesl,body.admin .seg,body.admin #nav-sales,body:not(.admin) #nav-admin{display:none}
+.lockbox{max-width:440px;margin:6vh auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px}
+.lockbox form{display:flex;gap:10px;margin-top:14px}.lockbox h2{font-size:26px}
+.lk{width:46px;height:46px;border-radius:12px;background:var(--sea);display:grid;place-items:center;margin-bottom:14px}
+.pwrow{display:grid;grid-template-columns:130px 120px minmax(0,1fr) auto auto;gap:8px;align-items:center;margin:8px 0;font-size:14px}
+.pwrow .st{font-size:12px;color:var(--mut)}.pwrow .st.on{color:var(--mag);font-weight:600}
+#relock{background:none;border:1.5px solid #bfe3ee;color:#bfe3ee;border-radius:10px;min-height:44px;padding:6px 14px;cursor:pointer;font-weight:600}
+@media(max-width:700px){.pwrow{grid-template-columns:minmax(0,1fr) auto}.pwrow input{grid-column:1/-1}.pwrow button{justify-self:start}}
+@media(max-width:760px){.find{grid-template-columns:minmax(0,1fr)}.legend{position:static}.cats{flex-direction:row;overflow-x:auto;max-height:none}.cats button{flex:none;border:1px solid var(--line)}}
+@media(max-width:600px){table{font-size:14px}.rt thead{display:none}.rt tbody tr:not(.det){display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));align-items:center;gap:4px 8px;padding:10px 0;border-bottom:1px solid var(--line)}.rt tbody tr:not(.det) td{border:0;padding:0 4px;background:none}.rt td.pn,.rt td.desc,.rt tr.row td:nth-child(2){grid-column:1/-1}.rt td.hm{display:none}.rt td.num{text-align:left}.rt td:last-child{justify-self:end}.rt .det,.rt .det td{display:block}.f{grid-template-columns:minmax(0,1fr) 130px}.top h1{font-size:20px}}
+@media(prefers-reduced-motion:no-preference){.stack i{transition:width .35s ease}}
+</style></head><body>
+<header class="top">
+ <div><h1><span id="apph">SJK Parts Pricing</span><span class="apptag" id="appt">SALES</span></h1><small id="apps">Club Car spare parts · Golf Carts PH service sales</small></div>
+ <div class="chip" id="fxchip">Loading costing…</div>
+ <button id="relock" hidden>Lock</button>
+ <a id="salesl" href="#find">Open sales tool →</a>
+ <div class="seg" role="group" aria-label="Shipping mode"><button data-mode="sea" class="on">Sea freight</button><button data-mode="air">Air freight</button></div>
+</header>
+<nav id="nav-sales"><a href="#find" data-v="find" class="on">Find a part</a><a href="#quote" data-v="quote">Quote <span class="n" id="qn">0</span></a></nav>
+<nav id="nav-admin"><a href="#setup" data-v="setup">Costing setup</a><a href="#access" data-v="access">Passwords &amp; access</a><a href="#data" data-v="data">Parts data</a></nav>
+<main>
+<section class="view on" id="v-find">
+ <div class="find">
+  <aside class="legend">
+   <h3>Cart type</h3><select id="model"></select>
+   <h3>Part category</h3><div class="cats" id="cats"></div>
+   <label class="chk"><input type="checkbox" id="unp"> Show parts not on the price list</label>
+  </aside>
+  <div>
+   <div class="search"><input type="search" id="q" placeholder="Search part number or description — e.g. 102505401, brake shoe, headlight" autocomplete="off"><button class="add ghost" id="clr">Clear</button></div>
+   <div class="meta" id="meta">Loading parts…</div>
+   <table class="rt"><thead><tr><th>Part no.</th><th>Description</th><th class="num hm">Dealer cost</th><th class="num">Landed cost</th><th class="num">Selling price</th><th></th></tr></thead><tbody id="res"></tbody></table>
+   <div style="text-align:center;margin-top:14px"><button class="add ghost" id="more" hidden>Show more</button></div>
+  </div>
+ </div>
+</section>
+
+<section class="view" id="v-quote">
+ <div class="qbar">
+  <label>Customer<input type="text" id="qc" placeholder="e.g. Valley Golf"></label>
+  <label>Reference<input type="text" id="qr" placeholder="e.g. Cart #12 brake job"></label>
+  <label>Margin %<input type="number" id="qm" step="1" style="width:100px"></label>
+  <button class="add" id="cpc">Copy for customer</button><button class="add ghost" id="cpi">Copy with costing</button><button class="add ghost" id="qclear">Clear quote</button>
+ </div>
+ <div id="qwarn"></div>
+ <table class="rt"><thead><tr><th>Part no.</th><th>Description</th><th class="num">Qty</th><th class="num" id="kgh">Kg / unit</th><th class="num hm">Landed / unit</th><th class="num">Price / unit</th><th class="num">Line total</th><th></th></tr></thead><tbody id="ql"></tbody></table>
+ <div class="qtot" id="qt"></div>
+ <div id="cpbox"></div>
+</section>
+
+<section class="view" id="v-setup">
+ <div id="setmsg"></div>
+ <div class="save"><button class="add" id="save">Save costing</button><button class="add ghost" id="reset">Reset to defaults</button><span id="savest" class="meta"></span></div>
+ <div class="sgrid" id="sform"></div>
+ <div class="card" style="margin-top:18px"><h3>How a ₱ price is built — sample US part at USD 100, 2 kg</h3><div id="prev"></div></div>
+</section>
+
+<section class="view" id="v-lock"><div class="lockbox"><div class="lk"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><h2 id="lockt">This section is locked</h2><p class="meta">Enter the password your manager gave you for this section.</p><form id="lockf"><input type="password" id="lockp" autocomplete="current-password" aria-label="Password"><button class="add">Unlock</button></form><p id="locke" class="meta" style="color:var(--mag)"></p></div></section>
+<section class="view" id="v-access"><div class="card" id="pwcard"></div>
+ <div class="card" style="margin-top:18px"><h3>Who can do what</h3><p class="meta" style="margin-top:0">Share this page from Claude. Give the sales user <b>Viewer</b> access and send them the sales link (ends in <b>#find</b>). Give the costing admin <b>Editor</b> access and the admin link (ends in <b>#setup</b>). Only Editors can save costing or passwords, whatever page they open.</p></div></section>
+<section class="view about" id="v-data">
+ <h2 style="font-size:28px;margin-bottom:10px">Parts data</h2>
+ <p>Prices come from Club Car's dealer price quotes for SJK Guahan (dated 9 Aug 2026, USD, "Unit Price" = SJK's buy price) and the 2025 Minibus Complete Spare Parts Catalogue (FCA China, valid 1 Dec 2025 – 31 Dec 2026). Cart fitment comes from the parts-book upload lists in each model folder.</p>
+ <div id="cov"></div>
+ <h3 style="margin-top:22px">How the cost is worked out</h3>
+ <ol>
+  <li><b>Buy price</b> in USD from the price list. China (Minibus) parts add an origin fee, because FCA prices exclude export and wood-packing charges.</li>
+  <li><b>Freight</b>: either a % of the buy price, or USD per kg × weight. Weights come from a default per category, which you can change on each quote line.</li>
+  <li><b>Insurance</b> % of buy price + freight gives the CIF value — the value Customs taxes on.</li>
+  <li><b>Duty</b> and <b>brokerage & port charges</b> are % of CIF. <b>Misc / contingency</b> is a % buffer on top.</li>
+  <li>Converted at the <b>forex rate + buffer</b>. That gives the <b>landed cost</b>.</li>
+  <li><b>Selling price</b> = landed cost ÷ (1 − margin), rounded up. 12% output VAT is added on top where shown.</li>
+ </ol>
+ <p class="meta">Import VAT is creditable input VAT for a VAT-registered company, so it is left out of cost by default. Turn it on in Costing setup if you want it included.</p>
+ <p class="meta">Categories are assigned by keywords in the Club Car description, so a few parts may sit in a near-neighbour category. Search always covers every category.</p>
+</section>
+</main>
+<script src="backend.js"></script>
+<script>
+{
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const KG={"Accessories":2,"Batteries & Charging":25,"Body & Trim":4,"Brakes & Pedals":1.5,"Canopy, Roof & Windshield":8,"Cargo Bed & Utility":10,"Decals & Labels":0.05,"Drivetrain & Clutch":4,"Electrical & Controls":0.8,"Engine & Fuel":1.5,"Frame & Chassis":6,"Hardware & Fasteners":0.05,"Lighting":0.8,"Not on price list":1,"Other":1,"Seats & Restraints":5,"Shop Tools & Service":2,"Steering & Suspension":3,"Wheels & Tires":10};
+const DEF={fx:64,fxBuf:1,seaBasis:'pct',airBasis:'kg',seaUSpct:12,seaCNpct:10,seaUSkg:2.5,seaCNkg:1.2,airUSpct:30,airCNpct:22,airUSkg:9,airCNkg:5,ins:0.5,duty:10,cnFee:3,broker:3,misc:5,vatCost:false,margin:35,floor:20,round:5,kg:{...KG}};
+const SHORT=["Tempo","Tempo ND","Onward","Prec 2019","Prec 2015","Prec 2009","CA300","CA500","CA700","Transporter","Villager","Villager AC","Minibus"];
+let D=null,HAY=[],BYPN={},S=structuredClone(DEF),meta={},mode='sea',db=null,canEdit=null,shared=false,readOnly=false;
+let F={model:-1,cat:-1,q:'',unp:false},shown=150,open=null;
+const ls={get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let Q=ls.get('sjk_quote',{lines:[],c:'',r:'',m:null});
+const SECS={find:'Find a part (sales)',quote:'Quote (sales)',setup:'Admin console'};
+const ADMIN=['setup','access','data'],VIEWS=['find','quote','setup','access','data'];
+const LK=t=>ADMIN.includes(t)?'setup':t;
+let LOCKS=ls.get('sjk_locks',{})||{},UNL={},curSec='find';
+try{UNL=JSON.parse(sessionStorage.getItem('sjk_unl'))||{}}catch(e){}
+const saveUnl=()=>{try{sessionStorage.setItem('sjk_unl',JSON.stringify(UNL))}catch(e){}};
+const isOpen=k=>canEdit===true||!LOCKS[k]||UNL[k]===LOCKS[k].hash;
+async function sha(t){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+mode=ls.get('sjk_mode','sea');
+
+const php=(v,dp=2)=>'₱'+v.toLocaleString('en-PH',{minimumFractionDigits:dp,maximumFractionDigits:dp});
+const usd=v=>v==null?'—':'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const rate=()=>(+S.fx||0)+(+S.fxBuf||0);
+const defKg=r=>+(S.kg?.[D.cats[r[5]]] ?? KG[D.cats[r[5]]] ?? 1);
+function calc(r,kg,margin,md=mode){
+ if(!r||r[2]==null)return null;
+ const o=r[4]?'CN':'US',fob=r[2]*(1+(o==='CN'?+S.cnFee:0)/100);
+ const basis=S[md+'Basis'],w=kg??defKg(r);
+ const fr=basis==='pct'?fob*S[md+o+'pct']/100:w*S[md+o+'kg'];
+ const ins=(fob+fr)*S.ins/100,cif=fob+fr+ins,duty=cif*S.duty/100,brk=cif*S.broker/100,sub=cif+duty+brk,misc=sub*S.misc/100,vat=sub*0.12;
+ const R=rate(),L=(sub+misc+(S.vatCost?vat:0))*R;
+ const m=Math.min(Math.max(+(margin??S.margin)||0,0),90)/100,raw=L/(1-m),rd=+S.round||0,sell=rd>0?Math.ceil(raw/rd)*rd:raw;
+ return {fob:fob*R,fr:fr*R,ins:ins*R,duty:duty*R,brk:brk*R,misc:misc*R,vat:S.vatCost?vat*R:0,landed:L,sell,gp:sell-L,w,basis,o};
+}
+const SEG=[['fob','Buy price','var(--fob)'],['fr','Freight','var(--fr)'],['ins','Insurance','var(--ins)'],['duty','Duty','var(--brown)'],['brk','Brokerage & port','var(--brk)'],['misc','Contingency','var(--misc)'],['vat','Import VAT','var(--vat)'],['gp','Margin','var(--mag)']];
+function stack(b){
+ const t=b.sell||1;
+ return `<div class="stack" role="img" aria-label="Cost build-up">${SEG.filter(s=>b[s[0]]>0).map(s=>`<i style="width:${(b[s[0]]/t*100).toFixed(2)}%;background:${s[2]}" title="${s[1]} ${php(b[s[0]])}"></i>`).join('')}</div>
+ <div class="keys">${SEG.filter(s=>b[s[0]]>0).map(s=>`<span><i style="background:${s[2]}"></i>${s[1]} ${php(b[s[0]])}</span>`).join('')}</div>`;
+}
+const fits=k=>k.length>3?k.slice(0,3).map(i=>SHORT[i]).join(', ')+` +${k.length-3}`:k.map(i=>SHORT[i]).join(', ');
+
+/* ---------- find ---------- */
+function filtered(){
+ const toks=F.q.toUpperCase().split(/\s+/).filter(Boolean),out=[];
+ for(let i=0;i<D.rows.length;i++){
+  const r=D.rows[i];
+  if(r[2]==null&&!F.unp&&!toks.length)continue;
+  if(F.model>=0&&!r[6].includes(F.model))continue;
+  if(F.cat>=0&&r[5]!==F.cat)continue;
+  if(toks.length&&!toks.every(t=>HAY[i].includes(t)))continue;
+  if(r[2]==null&&!F.unp&&!(toks.length===1&&r[0].toUpperCase().startsWith(toks[0])))continue;
+  out.push(i);
+ }
+ if(toks.length===1){const t=toks[0];out.sort((a,b)=>(D.rows[b][0].toUpperCase()===t)-(D.rows[a][0].toUpperCase()===t)||(D.rows[b][0].toUpperCase().startsWith(t))-(D.rows[a][0].toUpperCase().startsWith(t)))}
+ return out;
+}
+function renderCats(){
+ const cnt=new Array(D.cats.length).fill(0);let all=0;
+ D.rows.forEach(r=>{if((F.model<0||r[6].includes(F.model))&&(r[2]!=null||F.unp)){cnt[r[5]]++;all++}});
+ $('#cats').innerHTML=`<button data-c="-1" class="${F.cat<0?'on':''}">All categories <span>${all}</span></button>`+D.cats.map((c,i)=>cnt[i]?`<button data-c="${i}" class="${F.cat===i?'on':''}">${esc(c)} <span>${cnt[i]}</span></button>`:'').join('');
+}
+function renderRes(){
+ const ids=filtered(),list=ids.slice(0,shown);
+ const mdl=F.model>=0?D.models[F.model][0]:'all carts';
+ $('#meta').textContent=`${ids.length.toLocaleString()} parts · ${mdl}${F.cat>=0?' · '+D.cats[F.cat]:''} · ${mode==='sea'?'Sea':'Air'} freight · prices ex-VAT at ${S.margin}% margin`;
+ if(!ids.length){$('#res').innerHTML=`<tr><td colspan="6" class="empty">No parts match. Try fewer words, another cart type, or tick “Show parts not on the price list”.</td></tr>`;$('#more').hidden=true;return}
+ $('#res').innerHTML=list.map(i=>{
+  const r=D.rows[i],b=calc(r),inq=Q.lines.some(l=>l.pn===r[0]);
+  let h=`<tr class="row" data-i="${i}"><td class="pn">${esc(r[0])}</td><td><div class="desc">${esc(r[1])||'<i>No description — not on price list</i>'}</div><span class="tag">${esc(D.cats[r[5]])} · ${esc(fits(r[6]))}</span></td>
+  <td class="num hm">${usd(r[2])}</td><td class="num">${b?php(b.landed):'—'}</td><td class="num sell">${b?php(b.sell):'Price on request'}</td>
+  <td><button class="add" data-add="${i}" ${b?'':'disabled'}>${inq?'Added ✓':'Add'}</button></td></tr>`;
+  if(open===i)h+=detail(r,b);
+  return h;
+ }).join('');
+ $('#more').hidden=ids.length<=shown;$('#more').textContent=`Show more (${(ids.length-shown).toLocaleString()} left)`;
+}
+function detail(r,b){
+ const fitsAll=r[6].map(i=>D.models[i][0]).join(', ');
+ if(!b)return `<tr class="det"><td colspan="6"><b>${esc(r[0])}</b> is in the ${esc(fitsAll)} parts book but is not on the current Club Car price list (often superseded or no longer available). Ask Club Car for a price or replacement number.</td></tr>`;
+ return `<tr class="det"><td colspan="6"><div style="display:flex;flex-wrap:wrap;gap:18px;align-items:baseline;justify-content:space-between"><div><div class="big">${php(b.sell)}</div><span class="meta">selling price ex-VAT · ${php(b.sell*1.12)} with 12% VAT</span></div><div class="meta">Gross profit ${php(b.gp)} per unit</div></div>
+ ${stack(b)}
+ <div class="dgrid"><div><span>Fits</span><b style="text-align:right">${esc(fitsAll)}</b></div><div><span>Origin</span><b>${b.o==='CN'?'China (FCA)':'USA (Club Car)'}</b></div>
+ <div><span>Dealer cost</span><b>${usd(r[2])}</b></div><div><span>Club Car MSRP</span><b>${usd(r[3])}</b></div>
+ <div><span>Freight basis</span><b>${b.basis==='pct'?S[mode+b.o+'pct']+'% of buy price':b.w+' kg × $'+S[mode+b.o+'kg']+'/kg'}</b></div><div><span>Landed cost</span><b>${php(b.landed)}</b></div>
+ ${r[7].length?`<div><span>Supplier codes</span><b>${esc(r[7].join(', '))}</b></div>`:''}</div></td></tr>`;
+}
+
+/* ---------- quote ---------- */
+const qm=()=>Q.m??S.margin;
+function addPart(i){const r=D.rows[i],l=Q.lines.find(l=>l.pn===r[0]);if(l)l.qty++;else Q.lines.push({pn:r[0],qty:1,kg:null});saveQ();renderRes();renderQuote()}
+function saveQ(){ls.set('sjk_quote',Q);$('#qn').textContent=Q.lines.length}
+function qrows(){return Q.lines.map(l=>{const r=D.rows[BYPN[l.pn]];return {l,r,b:calc(r,l.kg??undefined,qm())}}).filter(x=>x.r&&x.b)}
+function renderQuote(){
+ $('#qc').value=Q.c;$('#qr').value=Q.r;$('#qm').value=qm();
+ const perKg=S[mode+'Basis']==='kg';$('#kgh').style.display=perKg?'':'none';
+ const rows=qrows();
+ $('#qwarn').innerHTML=(qm()<S.floor?`<div class="warn">Margin ${qm()}% is below the ${S.floor}% floor set in Costing setup. Get approval before sending.</div>`:'')+(perKg?`<div class="note">${mode==='air'?'Air':'Sea'} freight is charged per kg. Weights start from category estimates — type the real weight per unit where you know it.</div>`:'');
+ if(!rows.length){$('#ql').innerHTML=`<tr><td colspan="8" class="empty">No parts yet. Go to <a href="#find">Find a part</a> and press Add.</td></tr>`;$('#qt').innerHTML='';return}
+ let L=0,T=0;
+ $('#ql').innerHTML=rows.map(({l,r,b})=>{L+=b.landed*l.qty;T+=b.sell*l.qty;
+  return `<tr><td class="pn">${esc(r[0])}</td><td class="desc">${esc(r[1])}<br><span class="tag">${esc(D.cats[r[5]])}</span></td>
+  <td class="num"><input type="number" min="1" step="1" value="${l.qty}" data-qty="${esc(l.pn)}" aria-label="Quantity"></td>
+  <td class="num" style="${perKg?'':'display:none'}"><input type="number" min="0" step="0.01" value="${b.w}" data-kg="${esc(l.pn)}" aria-label="Kg per unit"></td>
+  <td class="num hm">${php(b.landed)}</td><td class="num">${php(b.sell)}</td><td class="num sell">${php(b.sell*l.qty)}</td>
+  <td><button class="add ghost" data-del="${esc(l.pn)}" aria-label="Remove">✕</button></td></tr>`}).join('');
+ const vat=T*0.12,gp=T-L;
+ $('#qt').innerHTML=`<div><small>Landed cost</small><b>${php(L)}</b></div><div><small>Selling price ex-VAT</small><b>${php(T)}</b></div><div><small>12% VAT</small><b>${php(vat)}</b></div><div><small>Total VAT-inclusive</small><b class="sell">${php(T+vat)}</b></div><div><small>Gross profit (${T?(gp/T*100).toFixed(1):0}%)</small><b>${php(gp)}</b></div>`;
+}
+function copyText(txt){
+ const done=()=>{$('#cpbox').innerHTML=`<p class="meta">Copied — paste into Excel, Zoho or an email.</p>`};
+ const fail=()=>{$('#cpbox').innerHTML=`<p class="meta">Copy was blocked — select the text below and copy it.</p><pre class="cp">${esc(txt)}</pre>`};
+ try{navigator.clipboard.writeText(txt).then(done,fail)}catch(e){fail()}
+}
+function quoteTSV(internal){
+ const rows=qrows();let T=0,L=0;
+ const h=internal?['Part no.','Description','Qty','Kg/unit','Landed/unit (PHP)','Price/unit ex-VAT (PHP)','Line total (PHP)','GP (PHP)']:['Part no.','Description','Qty','Unit price ex-VAT (PHP)','Line total (PHP)'];
+ const lines=rows.map(({l,r,b})=>{T+=b.sell*l.qty;L+=b.landed*l.qty;const f=v=>v.toFixed(2);
+  return (internal?[r[0],r[1],l.qty,b.w,f(b.landed),f(b.sell),f(b.sell*l.qty),f((b.sell-b.landed)*l.qty)]:[r[0],r[1],l.qty,f(b.sell),f(b.sell*l.qty)]).join('\t')});
+ const head=[`Customer: ${Q.c}`,`Reference: ${Q.r}`,`Date: ${new Date().toLocaleDateString('en-PH')}`,''];
+ const tail=['',`Subtotal ex-VAT\t${T.toFixed(2)}`,`VAT 12%\t${(T*.12).toFixed(2)}`,`Total VAT-inclusive\t${(T*1.12).toFixed(2)}`];
+ if(internal)tail.push(`Landed cost\t${L.toFixed(2)}`,`Gross profit\t${(T-L).toFixed(2)}`,`Basis: ${mode} freight, forex ${rate().toFixed(2)}, margin ${qm()}%`);
+ return [...head,h.join('\t'),...lines,...tail].join('\n');
+}
+
+/* ---------- setup ---------- */
+const FORM=[
+ ['Forex',[['fx','USD → PHP rate','PHP per USD',0.01],['fxBuf','Forex buffer','PHP added per USD, for safety',0.01]]],
+ ['Sea freight',[['seaBasis','Charge basis','',null,'basis'],['seaUSpct','USA origin — % of buy price','used when basis is %',0.1],['seaCNpct','China origin — % of buy price','',0.1],['seaUSkg','USA origin — USD per kg','used when basis is per kg',0.01],['seaCNkg','China origin — USD per kg','',0.01]]],
+ ['Air freight',[['airBasis','Charge basis','',null,'basis'],['airUSpct','USA origin — % of buy price','used when basis is %',0.1],['airCNpct','China origin — % of buy price','',0.1],['airUSkg','USA origin — USD per kg','used when basis is per kg',0.01],['airCNkg','China origin — USD per kg','',0.01]]],
+ ['Duties & charges',[['ins','Insurance','% of buy price + freight',0.1],['duty','Customs duty','% of CIF — confirm HS rate with broker',0.1],['broker','Brokerage, arrastre & port','% of CIF',0.1],['cnFee','China origin fee','% — FCA excludes export & packing',0.1],['misc','Misc / contingency','% buffer on landed cost',0.1],['vatCost','Count 12% import VAT as cost','off = creditable input VAT',null,'bool']]],
+ ['Pricing',[['margin','Standard margin','% of selling price',1],['floor','Minimum margin','% — quotes below this get flagged',1],['round','Round selling price up to','PHP (0 = no rounding)',1]]]
+];
+function renderSetup(){
+ const dis=readOnly?'disabled':'';
+ $('#setmsg').innerHTML=readOnly?`<div class="note">You can view the costing but only editors of this page (e.g. James) can change it. Costs everyone sees come from these settings.</div>`:(shared?`<div class="note">Changes here apply to everyone using this tool once you press Save.</div>`:`<div class="warn">Shared settings aren't reachable right now, so changes save on this device only.</div>`);
+ $('#sform').innerHTML=FORM.map(([t,fs])=>`<div class="card"><h3>${t}</h3>${fs.map(([k,l,h,st,ty])=>`<div class="f"><label for="s_${k}">${l}${h?`<small>${h}</small>`:''}</label>${
+  ty==='basis'?`<select id="s_${k}" data-s="${k}" ${dis}><option value="pct" ${S[k]==='pct'?'selected':''}>% of buy price</option><option value="kg" ${S[k]==='kg'?'selected':''}>USD per kg</option></select>`:
+  ty==='bool'?`<input type="checkbox" id="s_${k}" data-s="${k}" ${S[k]?'checked':''} ${dis} style="width:24px;height:24px;justify-self:end">`:
+  `<input type="number" id="s_${k}" data-s="${k}" step="${st}" value="${S[k]}" ${dis}>`}</div>`).join('')}</div>`).join('')+
+ `<div class="card"><h3>Default weights (kg per unit)</h3><p class="meta" style="margin-top:0">Used only when freight is charged per kg. Sales can override per quote line.</p>${D.cats.map(c=>`<div class="f"><label>${esc(c)}</label><input type="number" step="0.01" data-kg-cat="${esc(c)}" value="${S.kg?.[c]??KG[c]??1}" ${dis}></div>`).join('')}</div>`;
+ const smp=['S','Sample',100,null,0,0,[],[]],b1=calc(smp,2,undefined,'sea'),b2=calc(smp,2,undefined,'air');
+ $('#prev').innerHTML=`<p class="meta" style="margin:0">Sea</p>${stack(b1)}<p class="meta">Landed ${php(b1.landed)} → selling ${php(b1.sell)}</p><p class="meta" style="margin:14px 0 0">Air</p>${stack(b2)}<p class="meta">Landed ${php(b2.landed)} → selling ${php(b2.sell)}</p>`;
+ renderPw();
+ $('#savest').textContent=meta.updatedAt?`Last saved ${new Date(meta.updatedAt).toLocaleString('en-PH')}`:'Using default settings — not saved yet';
+}
+function readForm(){
+ const n={...S,kg:{...S.kg}};
+ $$('[data-s]').forEach(el=>{const k=el.dataset.s;n[k]=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?el.value:(+el.value||0)});
+ $$('[data-kg-cat]').forEach(el=>n.kg[el.dataset.kgCat]=+el.value||0);
+ return n;
+}
+function renderPw(){
+ const can=!!db&&shared&&!readOnly,keepMsg=$('#pwst')?.textContent||'';
+ $('#pwcard').innerHTML=`<h3>Section passwords</h3><p class="meta" style="margin-top:0">${can?'<b>Find a part</b> and <b>Quote</b> make up the sales tool. <b>Admin console</b> covers Costing setup, Passwords and Parts data. People are asked once per browser session. Editors of this page are never asked.':readOnly?'Only editors of this page can set passwords.':'Passwords need the shared settings, which are not reachable right now.'}</p>`+
+ Object.entries(SECS).map(([k,n])=>`<div class="pwrow"><b>${n}</b><span class="st ${LOCKS[k]?'on':''}">${LOCKS[k]?'Locked':'Open — no password'}</span>${can?`<input type="password" id="pw_${k}" placeholder="New password (min 4 characters)" autocomplete="new-password" aria-label="New password for ${n}"><button class="add" data-setpw="${k}">${LOCKS[k]?'Change':'Set'}</button><button class="add ghost" data-clrpw="${k}" ${LOCKS[k]?'':'disabled'}>Remove</button>`:''}</div>`).join('')+`<p class="meta" id="pwst"></p>`;
+ $('#pwst').textContent=keepMsg;
+}
+async function writeLocks(n){
+ try{await db.doc('settings/locks').set(n);LOCKS=n;ls.set('sjk_locks',n);renderPw();return true}
+ catch(e){$('#pwst').textContent=e&&e.code==='invalid_argument'?'Only editors can change passwords.':'Could not save — try again.';return false}
+}
+$('#pwcard').addEventListener('click',async e=>{
+ const s=e.target.closest('[data-setpw]'),c=e.target.closest('[data-clrpw]');
+ if(s){const k=s.dataset.setpw,pw=$('#pw_'+k).value;if(pw.length<4){$('#pwst').textContent='Use at least 4 characters.';return}
+  const salt=[...crypto.getRandomValues(new Uint8Array(8))].map(x=>x.toString(16).padStart(2,'0')).join('');
+  const n={...LOCKS,[k]:{salt,hash:await sha(salt+':'+pw),setAt:new Date().toISOString()}};
+  if(await writeLocks(n))$('#pwst').textContent=SECS[k]+' password saved ✓ — share it with the people who need it.'}
+ if(c){const k=c.dataset.clrpw,n={...LOCKS};delete n[k];if(await writeLocks(n))$('#pwst').textContent=SECS[k]+' is now open to everyone with the link.'}
+});
+$('#lockf').addEventListener('submit',async e=>{e.preventDefault();const L=LOCKS[curSec];if(!L){route();return}
+ const pw=$('#lockp').value,B=window.SJK_BACKEND;
+ if(B&&B.unlock){ // backend checks the password and returns the sections it opens
+  let opened=[];try{opened=await B.unlock(curSec,pw)||[]}catch(err){}
+  if(opened.includes(curSec)){opened.forEach(k=>{if(LOCKS[k])UNL[k]=LOCKS[k].hash});saveUnl();route();renderAll()}
+  else{$('#locke').textContent='Wrong password — try again.';$('#lockp').select()}
+  return}
+ const h=await sha(L.salt+':'+pw);
+ if(h===L.hash){for(const [k,o] of Object.entries(LOCKS)){if(o&&o.salt&&await sha(o.salt+':'+pw)===o.hash)UNL[k]=o.hash}saveUnl();route();renderAll()}else{$('#locke').textContent='Wrong password — try again.';$('#lockp').select()}});
+$('#relock').addEventListener('click',()=>{UNL={};saveUnl();if(window.SJK_BACKEND&&window.SJK_BACKEND.lock)window.SJK_BACKEND.lock();route();renderAll()});
+async function saveSettings(){
+ const n=readForm();S=n;let msg;
+ if(db&&!readOnly){
+  $('#savest').textContent='Saving…';
+  try{const body={...n,updatedAt:new Date().toISOString()};await db.doc('settings/current').set(body);meta.updatedAt=body.updatedAt;msg='Saved for everyone ✓'}
+  catch(e){if(e&&e.code==='invalid_argument'){readOnly=true;msg='Only editors can change costing.'}else{ls.set('sjk_settings',n);msg='Could not reach shared settings — saved on this device.'}}
+ }else{ls.set('sjk_settings',n);msg='Saved on this device ✓'}
+ renderAll();if(readOnly)renderSetup();
+ $('#savest').textContent=msg;   // after the redraw, so the confirmation stays visible
+}
+
+/* ---------- shell ---------- */
+function renderHeader(){
+ $('#fxchip').innerHTML=`Forex <b>₱${rate().toFixed(2)}</b>/USD · margin <b>${S.margin}%</b> · ${shared?'shared costing':'local costing'}`;
+ $$('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.mode===mode));
+}
+function renderAll(){if(!D)return;renderHeader();
+ if(isOpen('find')){renderCats();renderRes()}else{$('#res').innerHTML='';$('#cats').innerHTML=''}
+ if(isOpen('quote'))renderQuote();else{$('#ql').innerHTML='';$('#qt').innerHTML=''}
+ if(isOpen('setup')){if(!$('#v-setup').classList.contains('on')||!document.activeElement?.dataset?.s)renderSetup()}else{$('#sform').innerHTML='';$('#prev').innerHTML='';$('#pwcard').innerHTML=''}
+ if(isOpen('setup'))renderCov();else $('#cov').innerHTML='';
+ $('#relock').hidden=canEdit===true||!Object.keys(LOCKS).some(k=>UNL[k]===LOCKS[k]?.hash);
+ $$('nav a').forEach(a=>{const k=a.dataset.v;a.title=isOpen(LK(k))?'':'Locked'});
+}
+function renderCov(){
+ const rows=D.models.map((m,i)=>{let p=0,u=0;D.rows.forEach(r=>{if(r[6].includes(i))r[2]==null?u++:p++});return `<tr><td>${esc(m[0])}</td><td>${esc(m[1])}</td><td class="num">${p}</td><td class="num">${u}</td></tr>`}).join('');
+ const pr=D.rows.filter(r=>r[2]!=null).length;
+ $('#cov').innerHTML=`<p><b>${pr.toLocaleString()}</b> priced parts, <b>${(D.rows.length-pr).toLocaleString()}</b> part numbers in the parts books but not on the price lists.</p><table><thead><tr><th>Cart model</th><th>Group</th><th class="num">Priced</th><th class="num">Not priced</th></tr></thead><tbody>${rows}</tbody></table>
+ <div class="note">Precedent 2009P is missing price files 02 and 06, which is why so many of its parts show no price.</div>`;
+}
+function route(){let v=(location.hash||'#find').slice(1);if(v==='about')v='data';const ok=VIEWS.includes(v)?v:'find';curSec=LK(ok);const open=isOpen(curSec),adm=ADMIN.includes(ok);
+ document.body.classList.toggle('admin',adm);
+ $('#apph').textContent=adm?'SJK Parts Costing':'SJK Parts Pricing';$('#appt').textContent=adm?'ADMIN':'SALES';$('#apps').textContent=adm?'Back end · costing, passwords and parts data':'Club Car spare parts · Golf Carts PH service sales';
+ document.title=adm?'SJK Parts · Admin console':'SJK Parts Pricing';
+ $$('.view').forEach(s=>s.classList.toggle('on',open?s.id==='v-'+ok:s.id==='v-lock'));
+ if(!open){$('#lockt').textContent=SECS[curSec].replace(' (sales)','')+' is locked';$('#locke').textContent='';$('#lockp').value='';setTimeout(()=>$('#lockp').focus(),50)}
+ $$('nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===ok));
+ if(D&&open){if(ok==='setup')renderSetup();if(ok==='access')renderPw();if(ok==='quote')renderQuote();if(ok==='find'){renderCats();renderRes()}if(ok==='data')renderCov()}}
+
+let qt;
+$('#q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{F.q=e.target.value.trim();shown=150;open=null;renderRes()},120)});
+$('#clr').addEventListener('click',()=>{$('#q').value='';F={model:-1,cat:-1,q:'',unp:false};$('#model').value='-1';$('#unp').checked=false;shown=150;open=null;renderCats();renderRes()});
+$('#model').addEventListener('change',e=>{F.model=+e.target.value;F.cat=-1;shown=150;open=null;renderCats();renderRes()});
+$('#unp').addEventListener('change',e=>{F.unp=e.target.checked;renderCats();renderRes()});
+$('#cats').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F.cat=+b.dataset.c;shown=150;open=null;renderCats();renderRes()});
+$('#more').addEventListener('click',()=>{shown+=150;renderRes()});
+$('#res').addEventListener('click',e=>{const a=e.target.closest('[data-add]');if(a){e.stopPropagation();addPart(+a.dataset.add);return}const tr=e.target.closest('tr.row');if(tr){const i=+tr.dataset.i;open=open===i?null:i;renderRes()}});
+$$('.seg button').forEach(b=>b.addEventListener('click',()=>{mode=b.dataset.mode;ls.set('sjk_mode',mode);renderAll()}));
+$('#ql').addEventListener('change',e=>{const t=e.target;let l;
+ if(t.dataset.qty){l=Q.lines.find(x=>x.pn===t.dataset.qty);if(l)l.qty=Math.max(1,Math.round(+t.value||1))}
+ if(t.dataset.kg){l=Q.lines.find(x=>x.pn===t.dataset.kg);if(l)l.kg=Math.max(0,+t.value||0)}
+ saveQ();renderQuote()});
+$('#ql').addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){Q.lines=Q.lines.filter(x=>x.pn!==d.dataset.del);saveQ();renderQuote();renderRes()}});
+$('#qc').addEventListener('input',e=>{Q.c=e.target.value;saveQ()});
+$('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
+$('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.value;saveQ();renderQuote()});
+$('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML=''});
+$('#cpc').addEventListener('click',()=>copyText(quoteTSV(false)));
+$('#cpi').addEventListener('click',()=>copyText(quoteTSV(true)));
+$('#save').addEventListener('click',saveSettings);
+$('#reset').addEventListener('click',()=>{if(readOnly)return;S=structuredClone(DEF);renderSetup();$('#savest').textContent='Defaults loaded — press Save to apply.'});
+$('#sform').addEventListener('input',()=>{if(readOnly)return;const keep=S;S=readForm();const smp=['S','Sample',100,null,0,0,[],[]];const b1=calc(smp,2,undefined,'sea'),b2=calc(smp,2,undefined,'air');$('#prev').innerHTML=`<p class="meta" style="margin:0">Sea</p>${stack(b1)}<p class="meta">Landed ${php(b1.landed)} → selling ${php(b1.sell)}</p><p class="meta" style="margin:14px 0 0">Air</p>${stack(b2)}<p class="meta">Landed ${php(b2.landed)} → selling ${php(b2.sell)}</p>`;S=keep;$('#savest').textContent='Unsaved changes'});
+window.addEventListener('hashchange',route);
+
+fetch((window.SJK_BACKEND&&window.SJK_BACKEND.partsUrl)||'data/parts_data.json').then(r=>r.json()).then(d=>{
+ D=d;HAY=D.rows.map(r=>(r[0]+' '+r[1]+' '+r[7].join(' ')).toUpperCase());D.rows.forEach((r,i)=>BYPN[r[0]]=i);
+ const g={};D.models.forEach((m,i)=>(g[m[1]]=g[m[1]]||[]).push(`<option value="${i}">${esc(m[0])}</option>`));
+ $('#model').innerHTML=`<option value="-1">All cart types</option>`+Object.entries(g).map(([k,v])=>`<optgroup label="${esc(k)}">${v.join('')}</optgroup>`).join('');
+ saveQ();route();renderAll();
+}).catch(()=>{$('#meta').textContent='Could not load the parts list. Reload the page to try again.'});
+
+const local=ls.get('sjk_settings',null);
+if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
+(async()=>{
+ // Shared storage: your backend (backend.js → window.SJK_BACKEND) or, inside Claude, the artifact store.
+ // With neither, costing saves on this device only, exactly as the guide's troubleshooting describes.
+ const B=window.SJK_BACKEND,use=window.claude?.use;
+ let d=null,u=null;
+ if(B){d=B;u=B.canEdit?{canEdit:()=>B.canEdit()}:null}
+ else if(use){[d,u]=await Promise.all([use('db').catch(()=>null),use('user').catch(()=>null)])}
+ else{renderAll();return}
+ db=d;
+ if(u){try{canEdit=await Promise.resolve(u.canEdit())}catch(e){canEdit=null}}
+ if(!db){route();renderAll();return}
+ readOnly=canEdit===false;shared=true;
+ let timer=setTimeout(()=>{$('#savest').textContent='Shared settings are slow to load — showing the last known values.'},10000);
+ db.doc('settings/locks').onSnapshot(s=>{
+  if(s.exists){LOCKS={...s.data()}}else if(!s.metadata.fromCache){LOCKS={}}
+  ls.set('sjk_locks',LOCKS);route();renderAll();
+ },()=>{});
+ route();
+ db.doc('settings/current').onSnapshot(s=>{
+  if(!s.metadata.fromCache)clearTimeout(timer);
+  if(s.exists){const v=s.data();S={...DEF,...v,kg:{...KG,...(v.kg||{})}};meta.updatedAt=v.updatedAt}
+  else if(!s.metadata.fromCache){S=structuredClone(DEF);meta={}}
+  renderAll();
+ },()=>{clearTimeout(timer);shared=false;renderAll()});
+})();
+}
+</script>
+</body></html>

@@ -1,0 +1,30 @@
+{
+  "_about": "Reproduces proposal/Sample Proposal - SP-GC-07680-v1.pdf. Render: node scripts/render-proposal.js tests/fixtures/sample-proposal.json",
+  "quote": {
+    "id": "Q-SAMPLE",
+    "reference": "Tempo fleet: brake & front suspension service",
+    "model": "Tempo",
+    "customer": {
+      "account": { "Account_Name": "Sample Golf & Country Club", "Billing_Street": "Km 30 Sample Road", "Billing_City": "Silang, Cavite", "Phone": "0917 000 0000" },
+      "contact": { "First_Name": "Juan", "Last_Name": "Dela Cruz", "Title": "Fleet Manager", "Email": "juan.delacruz@example.com", "Mobile": "0917 000 0000" }
+    },
+    "deal": { "Street": "Km 30 Sample Road", "City": "Silang, Cavite" },
+    "zoho": { "dealNo": "GC-07680" }
+  },
+  "version": {
+    "no": "SP-GC-07680-v1",
+    "date": "2026-11-23",
+    "validUntil": "2026-12-08",
+    "mode": "sea",
+    "approval": null,
+    "lines": [
+      { "pn": "101823201", "desc": "BRAKE SHOE PACKAGE SELF ADJ", "fits": "Tempo", "qty": 2, "unitSell": 4150 },
+      { "pn": "101791101", "desc": "BRAKE, DRUM, W/O CENTER HOLE", "fits": "Tempo", "qty": 2, "unitSell": 3890 },
+      { "pn": "102588601", "desc": "SHOCK ABSORBER FRONT PRV SPD", "fits": "Tempo", "qty": 2, "unitSell": 3010 },
+      { "pn": "102022601", "desc": "END, TIE ROD M12 X 1.25 RH", "fits": "Tempo", "qty": 1, "unitSell": 2095 },
+      { "pn": "103638801", "desc": "KIT, KING PIN JOINTS, PREC", "fits": "Tempo", "qty": 1, "unitSell": 4720 }
+    ],
+    "totals": { "sub": 28915, "vat": 3469.8, "total": 32384.8 }
+  },
+  "rep": { "name": "(Sales rep name)", "title": "Service Executive", "mobile": "mobile", "email": "email" }
+}
