@@ -74,6 +74,19 @@ create table if not exists public.unlock_failures (
 );
 create index if not exists unlock_failures_ip_at on public.unlock_failures (ip, at);
 
+-- The price list (parts_data.json: parts, dealer costs, fitment). Served by parts-api to signed-in people only,
+-- so dealer costs are not a public file on the website. Admins upload new versions in Parts data; old ones are kept.
+create table if not exists public.price_list (
+  id          bigint generated always as identity primary key,
+  version     text not null default '',
+  data        jsonb not null,
+  created_at  timestamptz not null default now(),
+  created_by  text not null default ''
+);
+alter table public.price_list enable row level security;
+revoke all on public.price_list from anon, authenticated;
+grant all on public.price_list to service_role;
+
 -- Zoho CRM access token cache (used only by the parts-api function; Zoho limits how often new tokens may be made).
 create table if not exists public.zoho_cache (
   name        text primary key,

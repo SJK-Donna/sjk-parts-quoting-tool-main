@@ -3,3 +3,12 @@ node_modules/
 .env
 *.log
 _site/
+
+# Dealer costs never go into the (public) repository. Keep these on your computer only;
+# the live tool gets the price list from Supabase (Parts data → Upload a new price list).
+parts_data.json
+parts_master.csv
+*Parts Master*.xlsx
+
+# Supabase CLI working files
+supabase/.temp/

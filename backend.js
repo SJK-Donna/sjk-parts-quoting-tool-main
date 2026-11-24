@@ -156,6 +156,14 @@
     },
     signOut: function () { signedOut(); },
     user: function () { return me; },     // { email, name, role } of the signed-in person (for "Prepared by")
+    // Price list: only signed-in people get it (dealer costs are not a public file). Resolves to parts_data.json,
+    // or null when no price list has been uploaded yet (an admin uploads it in Parts data).
+    loadParts: async function () {
+      await ready;
+      if (!window.SJK_BACKEND.shared) throw new Error("The tool's server (parts-api) can't be reached, so the price list can't load. Reload the page in a minute.");
+      return request('GET', '/parts');
+    },
+    uploadParts: function (data) { return request('PUT', '/parts', data); },
     // Zoho CRM customers (through parts-api; the Zoho login never reaches the browser)
     zoho: {
       configured: function () {

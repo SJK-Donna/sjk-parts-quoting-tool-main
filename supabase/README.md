@@ -62,6 +62,17 @@ signed in. "Requested function was not found" means step 2 isn't done.
 
 Every costing save and password change is kept in **`settings_history`** with who made it.
 
+## Price list (dealer costs stay behind sign-in)
+The price list (`parts_data.json`, with every Club Car dealer cost) is **not** published on the website
+or kept in the public GitHub repository. It's stored in Supabase (`price_list` table), and `parts-api`
+gives it only to people who are signed in.
+
+- **First time / new Club Car prices:** sign in as admin → **Parts data** → **Upload a new price list**
+  → choose `data/parts_data.json` from your computer (or the new one made by `ingest.py`).
+  It applies to everyone straight away. The last 5 versions are kept.
+- Keep `parts_data.json`, `parts_master.csv` and `Club Car Parts Master.xlsx` on your computer or a
+  private drive only. `.gitignore` stops them being committed again.
+
 ## Connect Zoho CRM (customers on the Quote tab)
 Once connected, the Quote tab's **Customer** box searches Zoho CRM Accounts. Picking one fills in
 the address and phone and lists that account's Contacts. The Zoho login stays in Supabase as a

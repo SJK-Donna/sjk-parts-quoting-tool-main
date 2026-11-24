@@ -190,6 +190,9 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
  <h2 style="font-size:28px;margin-bottom:10px">Parts data</h2>
  <p>Prices come from Club Car's dealer price quotes for SJK Guahan (dated 9 Aug 2026, USD, "Unit Price" = SJK's buy price) and the 2025 Minibus Complete Spare Parts Catalogue (FCA China, valid 1 Dec 2025 – 31 Dec 2026). Cart fitment comes from the parts-book upload lists in each model folder.</p>
  <div id="cov"></div>
+ <div class="card" id="upcard" hidden style="margin-top:18px"><h3>Upload a new price list</h3>
+  <p class="meta" style="margin-top:0">Choose the <b>parts_data.json</b> built from Club Car's new price files. It replaces the price list for everyone straight away (the last 5 versions are kept). Dealer costs stay behind sign-in — the file is never published on the website.</p>
+  <input type="file" id="upfile" accept=".json,application/json" aria-label="Price list file (parts_data.json)"><p class="meta" id="upst" role="status"></p></div>
  <h3 style="margin-top:22px">How the cost is worked out</h3>
  <ol>
   <li><b>Buy price</b> in USD from the price list. China (Minibus) parts add an origin fee, because FCA prices exclude export and wood-packing charges.</li>
@@ -272,6 +275,7 @@ function renderCats(){
  $('#cats').innerHTML=`<button data-c="-1" class="${F.cat<0?'on':''}">All categories <span>${all}</span></button>`+D.cats.map((c,i)=>cnt[i]?`<button data-c="${i}" class="${F.cat===i?'on':''}">${esc(c)} <span>${cnt[i]}</span></button>`:'').join('');
 }
 function renderRes(){
+ if(!D)return;
  const ids=filtered(),list=ids.slice(0,shown);
  const mdl=F.model>=0?D.models[F.model][0]:'all carts';
  $('#meta').textContent=`${ids.length.toLocaleString()} parts · ${mdl}${F.cat>=0?' · '+D.cats[F.cat]:''} · ${mode==='sea'?'Sea':'Air'} freight · prices ex-VAT at ${S.margin}% margin`;
@@ -303,12 +307,13 @@ function addPart(i){const r=D.rows[i],l=Q.lines.find(l=>l.pn===r[0]);if(l)l.qty+
 function saveQ(){ls.set('sjk_quote',Q);$('#qn').textContent=Q.lines.length}
 function qrows(){return Q.lines.map(l=>{const r=D.rows[BYPN[l.pn]];return {l,r,b:calc(r,l.kg??undefined,qm())}}).filter(x=>x.r&&x.b)}
 function renderQuote(){
+ if(!D)return;
  $('#qc').value=Q.c;$('#qr').value=Q.r;$('#qm').value=qm();
  if($('#qmod').options.length<2)$('#qmod').innerHTML='<option value="">Various</option>'+D.models.map(m=>`<option>${esc(m[0])}</option>`).join('');
  $$('[data-q]').forEach(el=>el.value=Q[el.dataset.q]??'');
  const perKg=S[mode+'Basis']==='kg';$('#kgh').style.display=perKg?'':'none';
  const rows=qrows();
- $('#qwarn').innerHTML=(qm()<S.floor?`<div class="warn">Margin ${qm()}% is below the ${S.floor}% floor set in Costing setup. Get approval before sending.</div>`:'')+(perKg?`<div class="note">${mode==='air'?'Air':'Sea'} freight is charged per kg. Weights start from category estimates — type the real weight per unit where you know it.</div>`:'');
+ $('#qwarn').innerHTML=(qm()<S.floor?`<div class="warn">Margin ${qm()}% is below the ${S.floor}% floor set in Costing setup. Get approval before sending.${needsApproval()?' <b>Copy for customer</b> and <b>Download PDF</b> are locked: use <b>Copy with costing</b> and send it to your admin, who sends the approved quote.':''}</div>`:'')+(perKg?`<div class="note">${mode==='air'?'Air':'Sea'} freight is charged per kg. Weights start from category estimates — type the real weight per unit where you know it.</div>`:'');
  if(!rows.length){$('#ql').innerHTML=`<tr><td colspan="8" class="empty">No parts yet. Go to <a href="#find">Find a part</a> and press Add.</td></tr>`;$('#qt').innerHTML='';return}
  let L=0,T=0;
  $('#ql').innerHTML=rows.map(({l,r,b})=>{L+=b.landed*l.qty;T+=b.sell*l.qty;
@@ -370,11 +375,11 @@ function previewPdf(){
  const p=buildProposal();if(p.err){$('#cpbox').innerHTML=`<div class="warn">${esc(p.err)}</div>`;return}
  pdfDoc=p;$('#cpbox').innerHTML='';
  $('#pdft').textContent=p.ver.no;$('#pdfst').textContent=qm()<S.floor?`Margin ${qm()}% is below the ${S.floor}% floor — get approval before sending.`:'';
- $('#pdff').srcdoc=p.html;$('#pdfm').hidden=false;$('#pdfdl').disabled=false;$('#pdfdl').textContent='Download PDF';$('#pdfdl').focus();
+ $('#pdff').srcdoc=p.html;$('#pdfm').hidden=false;$('#pdfdl').disabled=needsApproval();$('#pdfdl').textContent=needsApproval()?'Download needs admin approval':'Download PDF';$('#pdfdl').focus();
  if(window.ProposalPdf)window.ProposalPdf.loadLibs().catch(()=>{});
 }
 async function downloadPdf(){
- if(!pdfDoc)return;const btn=$('#pdfdl');btn.disabled=true;btn.textContent='Making PDF…';
+ if(!pdfDoc||needsApproval())return;const btn=$('#pdfdl');btn.disabled=true;btn.textContent='Making PDF…';
  try{const blob=await window.ProposalPdf.make(pdfDoc.html,pdfDoc.footer);
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=pdfDoc.name;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),60000);btn.textContent='Downloaded ✓'}
@@ -454,7 +459,7 @@ function renderHeader(){
  $('#fxchip').innerHTML=`Forex <b>₱${rate().toFixed(2)}</b>/USD · margin <b>${S.margin}%</b> · ${shared?'shared costing':'costing on this device only'}`;
  $$('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.mode===mode));
 }
-function renderAll(){if(!D)return;renderHeader();
+function renderAll(){renderHeader();if(!D)return;
  if(isOpen('find')){renderCats();renderRes()}else{$('#res').innerHTML='';$('#cats').innerHTML=''}
  if(isOpen('quote'))renderQuote();else{$('#ql').innerHTML='';$('#qt').innerHTML=''}
  if(isOpen('setup')){if(!$('#v-setup').classList.contains('on')||!document.activeElement?.dataset?.s)renderSetup()}else{$('#sform').innerHTML='';$('#prev').innerHTML='';$('#pwcard').innerHTML=''}
@@ -551,7 +556,10 @@ $('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
 $('#qmore').addEventListener('input',e=>{const k=e.target.dataset.q;if(k){Q[k]=e.target.value;saveQ()}});
 $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.value;saveQ();renderQuote()});
 $('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;closeAcc()});
-$('#cpc').addEventListener('click',()=>copyText(quoteTSV(false)));
+/* Golden rule 2: a signed-in sales rep can't send a below-minimum quote to the customer; an admin (the approver) can. */
+const needsApproval=()=>canEdit===false&&qm()<S.floor;
+const approvalMsg=()=>`<div class="warn">Margin ${qm()}% is below the ${S.floor}% minimum, so this quote needs an admin's approval before it goes to the customer. Use <b>Copy with costing</b> and send it to your admin.</div>`;
+$('#cpc').addEventListener('click',()=>{if(needsApproval()){$('#cpbox').innerHTML=approvalMsg();return}copyText(quoteTSV(false))});
 $('#cpi').addEventListener('click',()=>copyText(quoteTSV(true)));
 $('#cpp').addEventListener('click',previewPdf);
 $('#pdfdl').addEventListener('click',downloadPdf);
@@ -562,12 +570,33 @@ $('#reset').addEventListener('click',()=>{if(readOnly)return;S=structuredClone(D
 $('#sform').addEventListener('input',()=>{if(readOnly)return;const keep=S;S=readForm();const smp=['S','Sample',100,null,0,0,[],[]];const b1=calc(smp,2,undefined,'sea'),b2=calc(smp,2,undefined,'air');$('#prev').innerHTML=`<p class="meta" style="margin:0">Sea</p>${stack(b1)}<p class="meta">Landed ${php(b1.landed)} → selling ${php(b1.sell)}</p><p class="meta" style="margin:14px 0 0">Air</p>${stack(b2)}<p class="meta">Landed ${php(b2.landed)} → selling ${php(b2.sell)}</p>`;S=keep;$('#savest').textContent='Unsaved changes'});
 window.addEventListener('hashchange',route);
 
-fetch((window.SJK_BACKEND&&window.SJK_BACKEND.partsUrl)||'data/parts_data.json').then(r=>r.json()).then(d=>{
- D=d;HAY=D.rows.map(r=>(r[0]+' '+r[1]+' '+r[7].join(' ')).toUpperCase());D.rows.forEach((r,i)=>BYPN[r[0]]=i);
+/* Price list. With the backend it comes from parts-api after sign-in (dealer costs are never a public file);
+   without it (local demo) from data/parts_data.json on this computer. */
+function useData(d){
+ D=d;HAY=D.rows.map(r=>(r[0]+' '+r[1]+' '+r[7].join(' ')).toUpperCase());BYPN={};D.rows.forEach((r,i)=>BYPN[r[0]]=i);
  const g={};D.models.forEach((m,i)=>(g[m[1]]=g[m[1]]||[]).push(`<option value="${i}">${esc(m[0])}</option>`));
  $('#model').innerHTML=`<option value="-1">All cart types</option>`+Object.entries(g).map(([k,v])=>`<optgroup label="${esc(k)}">${v.join('')}</optgroup>`).join('');
+ $('#qmod').innerHTML='<option value="">Various</option>';   // refilled from the new list
  saveQ();route();renderAll();
-}).catch(()=>{$('#meta').textContent='Could not load the parts list. Reload the page to try again.'});
+}
+const PB=window.SJK_BACKEND;
+(PB&&PB.loadParts?PB.loadParts():fetch('data/parts_data.json').then(r=>{if(!r.ok)throw new Error('');return r.json()})).then(d=>{
+ if(d)return useData(d);
+ const adm=PB&&PB.user&&PB.user()&&PB.user().role==='admin';
+ $('#meta').innerHTML=adm?'No price list uploaded yet. Open <a href="#data">Parts data</a> and upload <b>parts_data.json</b>.':'No price list yet — ask your admin to upload it.';
+}).catch(e=>{$('#meta').textContent=(e&&e.message)||'Could not load the parts list. Reload the page to try again.'});
+$('#upfile').addEventListener('change',async e=>{
+ const f=e.target.files[0];if(!f)return;const st=$('#upst');st.textContent='Checking '+f.name+'…';
+ try{const d=JSON.parse(await f.text());
+  if(!d||!Array.isArray(d.rows)||!Array.isArray(d.models)||!Array.isArray(d.cats))throw new Error('This is not a parts_data.json price list.');
+  st.textContent=`Uploading ${d.rows.length.toLocaleString()} parts…`;
+  const r=await PB.uploadParts(d);
+  if(!r||!r.parts)throw new Error("the server didn't accept it. Deploy the updated parts-api function (supabase/README.md), then upload again.");
+  useData(d);
+  st.textContent=`Price list ${r&&r.version?r.version+' ':''}uploaded ✓ — ${d.rows.length.toLocaleString()} parts, ${d.rows.filter(x=>x[2]!=null).length.toLocaleString()} priced. Everyone gets it when they next open the tool.`}
+ catch(err){st.textContent='Not uploaded: '+(err.code==='invalid_argument'?'only admins can upload.':(err.message||err))}
+ e.target.value='';
+});
 
 const local=ls.get('sjk_settings',null);
 if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
@@ -585,6 +614,7 @@ if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
  if(!db){readOnly=canEdit===false;route();renderAll();return}   // signed-in sales stay read-only on costing
  readOnly=canEdit===false;shared=true;
  initZoho();   // Zoho customer search, if Zoho CRM is connected to parts-api
+ if(canEdit===true&&B&&B.uploadParts)$('#upcard').hidden=false;   // admins upload the price list
  let timer=setTimeout(()=>{$('#savest').textContent='The server is slow to answer — showing the last saved costing.'},10000);
  db.doc('settings/locks').onSnapshot(s=>{
   if(s.exists){LOCKS={...s.data()}}else if(!s.metadata.fromCache){LOCKS={}}

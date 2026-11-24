@@ -10,6 +10,8 @@
 //   GET  /settings/locks     which sections are locked (version strings only, never hashes)
 //   PUT  /settings/locks     set / change / remove section passwords         admins only
 //   POST /unlock             { section, password } → { sections }             any signed-in person
+//   GET  /parts              the price list (parts_data.json)                 any signed-in person
+//   PUT  /parts              upload a new price list                          admins only
 //   GET  /zoho/status        → { configured }                                  any signed-in person
 //   GET  /zoho/accounts?search=word → [{ id, name, address, phone }]          Zoho CRM Accounts
 //   GET  /zoho/accounts/:id/contacts → [{ id, name, title, email, phone }]    the account's Contacts
@@ -131,9 +133,9 @@ async function sha256(t) {
 const isHex = (s, n?) => typeof s === "string" && /^[0-9a-f]+$/.test(s) && (n === undefined || s.length === n);
 const lockVersion = async (l) => "v" + (await sha256(l.salt + ":" + l.hash)).slice(0, 16);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function readJson(req) {
+async function readJson(req, limit = MAX_BODY) {
   const text = await req.text();
-  if (text.length > MAX_BODY) throw Object.assign(new Error("Too large"), { status: 413 });
+  if (text.length > limit) throw Object.assign(new Error("Too large"), { status: 413 });
   try { return JSON.parse(text); } catch { throw Object.assign(new Error("Not JSON"), { status: 400 }); }
 }
 
@@ -204,6 +206,23 @@ export async function handle(req) {
       }
       await db("DELETE", `/unlock_failures?at=lt.${new Date(Date.now() - 86400000).toISOString()}`);
       return reply(200, { sections: opened });
+    }
+
+    // ---------- price list (dealer costs stay behind sign-in) ----------
+    if (path === "/parts" && req.method === "GET") {
+      const rows = await db("GET", "/price_list?select=data&order=id.desc&limit=1");
+      return rows && rows[0] ? reply(200, rows[0].data) : reply(404, { error: "No price list uploaded yet." });
+    }
+    if (path === "/parts" && req.method === "PUT") {
+      if (!admin) return reply(403, { error: "Only admins can upload the price list." });
+      const d = await readJson(req, 5 * 1024 * 1024);
+      const ok = d && Array.isArray(d.rows) && Array.isArray(d.models) && Array.isArray(d.cats) && d.rows.length > 0 &&
+        d.rows.every((r) => Array.isArray(r) && typeof r[0] === "string" && (r[2] === null || typeof r[2] === "number"));
+      if (!ok) return reply(400, { error: "That file is not a parts_data.json price list." });
+      await db("POST", "/price_list", { version: String(d.v || ""), data: d, created_by: me.email });
+      const keep = await db("GET", "/price_list?select=id&order=id.desc&limit=5");   // keep the last 5 versions
+      if (keep && keep.length === 5) await db("DELETE", `/price_list?id=lt.${keep[4].id}`);
+      return reply(200, { version: String(d.v || ""), parts: d.rows.length });
     }
 
     // ---------- Zoho CRM customers ----------
