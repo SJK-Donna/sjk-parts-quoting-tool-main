@@ -9,8 +9,8 @@ IDEA: a survey map: filters sit in a legend panel, the parts list is the land.
 PICTURE: the cost stack — one bar per part showing where every peso of the price goes.
 COLOUR and TYPE: Overpass 800/400; land #fbfbf2, sea #bfe3ee, ink #13242e, contour brown for duties, magenta for selling price.
 LAYOUT: header with Sea/Air switch; tabs; legend left + results right; stacks under 760px. */
-:root{color-scheme:light dark;--bg:light-dark(#fbfbf2,#0d1c24);--panel:light-dark(#eef4ec,#122630);--sea:light-dark(#bfe3ee,#17394a);--ink:light-dark(#13242e,#e6efee);--mut:light-dark(#56676f,#98abb2);--line:light-dark(#dcdfd2,#24414e);--brown:light-dark(#a8551b,#e0965c);--mag:light-dark(#d6127e,#ff62b3);--card:light-dark(#fff,#10232b);--fob:light-dark(#13242e,#d7e6ea);--fr:#3d8fb0;--ins:#8cc7d9;--brk:#c98a55;--misc:light-dark(#b9ad8a,#8f866a);--vat:#7a8a92}
-:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+:root{color-scheme:light;--bg:light-dark(#fbfbf2,#0d1c24);--panel:light-dark(#eef4ec,#122630);--sea:light-dark(#bfe3ee,#17394a);--ink:light-dark(#13242e,#e6efee);--mut:light-dark(#56676f,#98abb2);--line:light-dark(#dcdfd2,#24414e);--brown:light-dark(#a8551b,#e0965c);--mag:light-dark(#d6127e,#ff62b3);--card:light-dark(#fff,#10232b);--fob:light-dark(#13242e,#d7e6ea);--fr:#3d8fb0;--ins:#8cc7d9;--brk:#c98a55;--misc:light-dark(#b9ad8a,#8f866a);--vat:#7a8a92}
+/* Always the light look from the Sales / Admin guides, even when the computer is in dark mode. */
 *{box-sizing:border-box;min-width:0}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Overpass,system-ui,sans-serif;overflow-x:clip}
 button,input,select{font:inherit;color:inherit}
