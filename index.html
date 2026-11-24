@@ -66,6 +66,17 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--panel)}
 #qacc button:hover,#qacc button:focus{background:var(--panel)}
 #qacc small{display:block;color:var(--mut);font-size:12px}
 #qacc .meta{padding:9px 12px;margin:0}
+.uadd{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 10px;align-items:end;margin:10px 0 4px}
+.uadd label,.urow label{font-size:12px;color:var(--mut);display:grid;gap:3px}
+.uadd .add{min-height:44px}
+#ulist{margin-top:8px;border-top:2px solid var(--ink)}
+.urow{display:grid;grid-template-columns:minmax(140px,1.2fr) minmax(130px,1fr) minmax(110px,.8fr) 110px 280px;gap:8px 10px;align-items:end;padding:12px 0;border-bottom:1px solid var(--line)}
+.urow .who{grid-column:1/-1;font-size:14px}.urow .who b{font-size:15px}
+.urow.off .who,.urow.off label{opacity:.55}
+.ubtns{display:flex;gap:6px;flex-wrap:wrap}.ubtns .add{min-height:40px;padding:6px 10px;font-size:14px}
+.utag{display:inline-block;font-size:11px;font-weight:700;border-radius:4px;padding:0 6px;margin-left:6px}
+.utag.adm{background:#f1e2cf;color:#7a3d0f}.utag.sal{background:#d8eef5;color:#13242e}.utag.off{background:#ececec;color:#555}.utag.me{background:#e3f2e6;color:#1d6a33}
+@media(max-width:700px){.urow{grid-template-columns:1fr 1fr}.ubtns{grid-column:1/-1}}
 .ztag{display:inline-block;font-size:11px;font-weight:700;background:#e3f2e6;color:#1d6a33;border-radius:4px;padding:0 6px;margin-left:4px}
 .qbar2{margin-top:-4px}.qbar2 label{flex:1 1 160px;max-width:220px}.qbar2 label.wide{flex:2 1 280px;max-width:420px}
 .qtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
@@ -185,7 +196,23 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
 
 <section class="view" id="v-lock"><div class="lockbox"><div class="lk"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><h2 id="lockt">This section is locked</h2><p class="meta">Enter the password your manager gave you for this section.</p><form id="lockf"><input type="password" id="lockp" autocomplete="current-password" aria-label="Password"><button class="add">Unlock</button></form><p id="locke" class="meta" style="color:var(--mag)"></p></div></section>
 <section class="view" id="v-access"><div class="card" id="pwcard"></div>
- <div class="card" style="margin-top:18px"><h3>Who can do what</h3><p class="meta" style="margin-top:0">Everyone signs in with their own email and password. <b>Admins</b> open in this admin console and can change costing and section passwords. <b>Sales</b> open in the sales tool (Find a part · Quote) and can’t open the admin console. To add people or change who is admin, use Supabase: <b>Authentication → Users</b> to add an account, <b>Table Editor → profiles</b> to set the role.</p></div></section>
+ <div class="card" id="ucard" style="margin-top:18px"><h3>Users</h3>
+ <p class="meta" style="margin-top:0">Everyone signs in with their own email and password. <b>Sales</b> open in the sales tool (Find a part · Quote). <b>Admins</b> open in this admin console and can change costing, passwords, the price list and users.</p>
+ <div id="uadmin" hidden>
+ <form id="uadd" class="uadd" autocomplete="off">
+  <label>Name<input type="text" name="name" required placeholder="e.g. Juan Santos"></label>
+  <label>Email<input type="text" inputmode="email" name="email" required placeholder="name@sjkguahan.com"></label>
+  <label>Position<input type="text" name="title" placeholder="e.g. Service Executive"></label>
+  <label>Mobile<input type="text" inputmode="tel" name="mobile" placeholder="e.g. 0917 000 0000"></label>
+  <label>Role<select name="role"><option value="sales">Sales</option><option value="admin">Admin</option></select></label>
+  <label>Temporary password<input type="text" name="password" required minlength="8" placeholder="at least 8 characters"></label>
+  <button class="add">Add user</button>
+ </form>
+ <p class="meta" id="ust" role="status"></p>
+ <div id="ulist"></div>
+ </div>
+ <p class="meta" id="unoadmin">Users can be managed here once you're signed in as an admin and the parts-api server is up.</p>
+</div></div></section>
 <section class="view about" id="v-data">
  <h2 style="font-size:28px;margin-bottom:10px">Parts data</h2>
  <p>Prices come from Club Car's dealer price quotes for SJK Guahan (dated 9 Aug 2026, USD, "Unit Price" = SJK's buy price) and the 2025 Minibus Complete Spare Parts Catalogue (FCA China, valid 1 Dec 2025 – 31 Dec 2026). Cart fitment comes from the parts-book upload lists in each model folder.</p>
@@ -520,7 +547,7 @@ function route(){let v=(location.hash||'#find').slice(1);if(v==='about')v='data'
  $$('.view').forEach(s=>s.classList.toggle('on',open?s.id==='v-'+ok:s.id==='v-lock'));
  if(!open){$('#lockt').textContent=SECS[curSec].replace(' (sales)','')+' is locked';$('#locke').textContent='';$('#lockp').value='';setTimeout(()=>$('#lockp').focus(),50)}
  $$('nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===ok));
- if(D&&open){if(ok==='setup')renderSetup();if(ok==='access')renderPw();if(ok==='quote')renderQuote();if(ok==='find'){renderCats();renderRes()}if(ok==='data')renderCov()}}
+ if(D&&open){if(ok==='setup')renderSetup();if(ok==='access'){renderPw();renderUsers()}if(ok==='quote')renderQuote();if(ok==='find'){renderCats();renderRes()}if(ok==='data')renderCov()}}
 
 let qt;
 $('#q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{F.q=e.target.value.trim();shown=150;open=null;renderRes()},120)});
@@ -620,6 +647,40 @@ const PB=window.SJK_BACKEND;
  const adm=PB&&PB.user&&PB.user()&&PB.user().role==='admin';
  $('#meta').innerHTML=adm?'No price list uploaded yet. Open <a href="#data">Parts data</a> and upload <b>parts_data.json</b>.':'No price list yet — ask your admin to upload it.';
 }).catch(e=>{$('#meta').textContent=(e&&e.message)||'Could not load the parts list. Reload the page to try again.'});
+/* ---------- Users (admins add and manage sales / admin sign-ins, through parts-api) ---------- */
+let USERS=[];
+const UB=()=>window.SJK_BACKEND&&window.SJK_BACKEND.users;
+async function renderUsers(){
+ const can=canEdit===true&&shared&&!!UB();
+ $('#uadmin').hidden=!can;$('#unoadmin').hidden=can;if(!can)return;
+ try{USERS=await UB().list()}catch(e){$('#ust').textContent='Could not load users: '+(e.message||e);return}
+ const me=((window.SJK_BACKEND.user&&window.SJK_BACKEND.user())||{}).email;
+ $('#ulist').innerHTML=USERS.map(u=>{const self=u.email===me;return `<div class="urow ${u.active?'':'off'}" data-id="${esc(u.id)}">
+  <div class="who"><b>${esc(u.name||u.email)}</b> · ${esc(u.email)}<span class="utag ${u.role==='admin'?'adm':'sal'}">${u.role==='admin'?'Admin':'Sales'}</span>${u.active?'':'<span class="utag off">Deactivated</span>'}${self?'<span class="utag me">You</span>':''}</div>
+  <label>Name<input type="text" data-f="name" value="${esc(u.name)}"></label>
+  <label>Position<input type="text" data-f="title" value="${esc(u.title)}"></label>
+  <label>Mobile<input type="text" data-f="mobile" value="${esc(u.mobile)}"></label>
+  <label>Role<select data-f="role" ${self?'disabled title="You can’t change your own role"':''}><option value="sales" ${u.role==='sales'?'selected':''}>Sales</option><option value="admin" ${u.role==='admin'?'selected':''}>Admin</option></select></label>
+  <div class="ubtns"><button class="add" data-u="save">Save</button><button class="add ghost" data-u="pw">New password</button>${self?'':`<button class="add ghost" data-u="${u.active?'off':'on'}">${u.active?'Deactivate':'Reactivate'}</button>`}</div></div>`}).join('');
+}
+$('#ulist').addEventListener('click',async e=>{
+ const btn=e.target.closest('[data-u]');if(!btn)return;
+ const row=btn.closest('.urow'),id=row.dataset.id,u=USERS.find(x=>x.id===id),st=$('#ust'),act=btn.dataset.u;
+ try{
+  if(act==='save'){const p={};row.querySelectorAll('[data-f]').forEach(el=>{if(!el.disabled)p[el.dataset.f]=el.value});await UB().update(id,p);st.textContent=`Saved ${u.email} ✓`}
+  if(act==='pw'){const pw=prompt(`New password for ${u.email} (at least 8 characters):`);if(!pw)return;await UB().setPassword(id,pw);st.textContent=`New password set for ${u.email} ✓ — tell them in person or by private message.`}
+  if(act==='off'&&!confirm(`Deactivate ${u.email}? They can't sign in until an admin reactivates them.`))return;
+  if(act==='off'||act==='on'){await UB().update(id,{active:act==='on'});st.textContent=`${u.email} ${act==='on'?'reactivated':'deactivated'} ✓`}
+  renderUsers();
+ }catch(err){st.textContent='Not saved: '+(err.message||err)}
+});
+$('#uadd').addEventListener('submit',async e=>{
+ e.preventDefault();const f=e.target,st=$('#ust'),btn=f.querySelector('button');btn.disabled=true;
+ try{const r=await UB().add(Object.fromEntries(new FormData(f)));
+  st.textContent=`Added ${r.email} as ${r.role==='admin'?'Admin':'Sales'} ✓ — give them the email and the temporary password.`;f.reset();renderUsers()}
+ catch(err){st.textContent='Not added: '+(err.message||err)}
+ finally{btn.disabled=false}
+});
 $('#upfile').addEventListener('change',async e=>{
  const f=e.target.files[0];if(!f)return;const st=$('#upst');st.textContent='Checking '+f.name+'…';
  try{const d=JSON.parse(await f.text());

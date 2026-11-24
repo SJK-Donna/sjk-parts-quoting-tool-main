@@ -10,6 +10,10 @@
 //   GET  /settings/locks     which sections are locked (version strings only, never hashes)
 //   PUT  /settings/locks     set / change / remove section passwords         admins only
 //   POST /unlock             { section, password } → { sections }             any signed-in person
+//   GET  /users              all sign-ins with role, position, status          admins only
+//   POST /users              add a sign-in {email,password,name,role,title,mobile}  admins only
+//   PATCH /users/:id         change role, name, position, mobile, active      admins only
+//   POST /users/:id/password set a new password                               admins only
 //   GET  /parts              the price list (parts_data.json)                 any signed-in person
 //   PUT  /parts              upload a new price list                          admins only
 //   GET  /zoho/status        → { configured }                                  any signed-in person
@@ -112,6 +116,17 @@ async function zoho(method, path) {
 }
 const joinAddr = (...parts) => [...new Set(parts.map((p) => String(p || "").trim()).filter(Boolean))].join(", ");
 
+// Users list / edits (admins). Only these profile fields can be changed through the API.
+const userOut = (p) => ({ id: p.id, email: p.email, name: p.name || "", role: p.role, title: p.title || "", mobile: p.mobile || "", active: !!p.active });
+function profilePatch(b, creating) {
+  const out = {};
+  if (b.role !== undefined) { if (b.role !== "admin" && b.role !== "sales") throw Object.assign(new Error("Role must be admin or sales."), { status: 400 }); out.role = b.role; }
+  for (const k of ["name", "title", "mobile"]) if (b[k] !== undefined) out[k] = String(b[k]).trim().slice(0, 120);
+  if (b.active !== undefined) out.active = !!b.active;
+  if (creating) { out.active = true; if (!out.role) out.role = "sales"; }
+  return out;
+}
+
 // The signed-in person (active profile) or null.
 async function currentUser(req) {
   const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
@@ -206,6 +221,55 @@ export async function handle(req) {
       }
       await db("DELETE", `/unlock_failures?at=lt.${new Date(Date.now() - 86400000).toISOString()}`);
       return reply(200, { sections: opened });
+    }
+
+    // ---------- users (admins add and manage sales and admin sign-ins) ----------
+    if (path === "/users" && req.method === "GET") {
+      if (!admin) return reply(403, { error: "Only admins can manage users." });
+      const rows = await db("GET", "/profiles?select=*&order=role.asc,name.asc");
+      return reply(200, (rows || []).map(userOut));
+    }
+    if (path === "/users" && req.method === "POST") {
+      if (!admin) return reply(403, { error: "Only admins can add users." });
+      const b = await readJson(req);
+      const email = String(b.email || "").trim().toLowerCase(), password = String(b.password || "");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reply(400, { error: "Enter a valid email address." });
+      if (password.length < 8) return reply(400, { error: "The temporary password needs at least 8 characters." });
+      const res = await fetch(SUPA + "/auth/v1/admin/users", {
+        method: "POST", headers: dbHeaders(),
+        body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { name: String(b.name || "").trim() } }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return reply(400, { error: /already|exists|registered/i.test(JSON.stringify(j)) ? "That email already has a sign-in." : (j.msg || j.message || "Could not create the sign-in.") });
+      // The database trigger made the profile; now set the details the admin chose.
+      await db("PATCH", `/profiles?id=eq.${j.id}`, profilePatch(b, true));
+      const rows = await db("GET", `/profiles?id=eq.${j.id}&select=*`);
+      return reply(200, userOut(rows[0]));
+    }
+    const um = path.match(/^\/users\/([0-9a-f-]{36})(\/password)?$/);
+    if (um && (req.method === "PATCH" || req.method === "POST")) {
+      if (!admin) return reply(403, { error: "Only admins can manage users." });
+      const id = um[1], b = await readJson(req);
+      if (um[2] && req.method === "POST") {                                   // reset password
+        if (String(b.password || "").length < 8) return reply(400, { error: "The new password needs at least 8 characters." });
+        const r = await fetch(`${SUPA}/auth/v1/admin/users/${id}`, { method: "PUT", headers: dbHeaders(), body: JSON.stringify({ password: String(b.password) }) });
+        if (!r.ok) return reply(400, { error: "Could not set the password." });
+        return reply(200, { ok: true });
+      }
+      if (req.method !== "PATCH" || um[2]) return reply(404, { error: "Not found" });
+      const patch = profilePatch(b, false);
+      if (id === me.id && (patch.role === "sales" || patch.active === false)) return reply(400, { error: "You can't remove your own admin access. Ask another admin." });
+      if (patch.role === "sales" || patch.active === false) {               // never leave the tool without an active admin
+        const admins = await db("GET", "/profiles?role=eq.admin&active=eq.true&select=id");
+        if (!(admins || []).some((a) => a.id !== id)) return reply(400, { error: "Keep at least one active admin." });
+      }
+      if (!Object.keys(patch).length) return reply(400, { error: "Nothing to change." });
+      await db("PATCH", `/profiles?id=eq.${id}`, patch);
+      if ("active" in patch) {                                                // deactivated people can't sign in at all
+        await fetch(`${SUPA}/auth/v1/admin/users/${id}`, { method: "PUT", headers: dbHeaders(), body: JSON.stringify({ ban_duration: patch.active ? "none" : "876000h" }) });
+      }
+      const rows = await db("GET", `/profiles?id=eq.${id}&select=*`);
+      return rows && rows[0] ? reply(200, userOut(rows[0])) : reply(404, { error: "User not found." });
     }
 
     // ---------- price list (dealer costs stay behind sign-in) ----------

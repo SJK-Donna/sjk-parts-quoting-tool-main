@@ -54,9 +54,12 @@
     if (t) headers.Authorization = 'Bearer ' + t;
     var res = await fetch(base + path, { method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body) });
     if (res.status === 401 && path !== '/me' && path !== '/unlock') { signedOut('Your session ended. Please sign in again.'); }
-    if (res.status === 401 || res.status === 403) { var e = new Error('Not allowed'); e.code = 'invalid_argument'; e.status = res.status; throw e; }
+    if (res.status === 401 || res.status === 403) {
+      var why = await res.json().catch(function () { return {}; });
+      var e = new Error(why.error || 'Not allowed'); e.code = 'invalid_argument'; e.status = res.status; throw e;
+    }
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error('Backend error ' + res.status);
+    if (!res.ok) { var j = await res.json().catch(function () { return {}; }); throw new Error(j.error || ('Backend error ' + res.status)); }
     return res.status === 204 ? null : res.json();
   }
 
@@ -164,6 +167,13 @@
       return request('GET', '/parts');
     },
     uploadParts: function (data) { return request('PUT', '/parts', data); },
+    // Admins: add and manage sign-ins (through parts-api; the Supabase admin key never reaches the browser)
+    users: {
+      list: function () { return request('GET', '/users').then(function (r) { return r || []; }); },
+      add: function (u) { return request('POST', '/users', u); },
+      update: function (id, patch) { return request('PATCH', '/users/' + encodeURIComponent(id), patch); },
+      setPassword: function (id, password) { return request('POST', '/users/' + encodeURIComponent(id) + '/password', { password: password }); }
+    },
     // Zoho CRM customers (through parts-api; the Zoho login never reaches the browser)
     zoho: {
       configured: function () {
