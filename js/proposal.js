@@ -57,7 +57,8 @@ body.capture{background:#fff!important;padding:0!important}.capture .sheet{box-s
     const acct = cust.account || {}, ct = cust.contact || null;
     const lead = ver.mode === 'air' ? s.leadAir : s.leadSea;
     const terms = String(s.terms || '').replace(/\{validity\}/g, s.validityDays).split('\n').map(t => t.trim()).filter(Boolean);
-    const contactLine = ct ? `Attn: ${esc([ct.First_Name, ct.Last_Name].filter(Boolean).join(' '))}${ct.Title ? ', ' + esc(ct.Title) : ''}<br>` : '';
+    const ctName = ct ? [ct.First_Name, ct.Last_Name].filter(Boolean).join(' ') : '';
+    const contactLine = ctName || (ct && ct.Title) ? `Attn: ${esc(ctName)}${ctName && ct.Title ? ', ' : ''}${esc(ct.Title || '')}<br>` : '';   // no empty 'Attn:' line
     const addr = [q.deal && q.deal.Street || acct.Billing_Street, q.deal && q.deal.City || acct.Billing_City].filter(Boolean).map(esc).join(', ');
     const reach = ct ? [ct.Email, ct.Mobile || acct.Phone].filter(Boolean).map(esc).join(' · ') : esc(acct.Phone || '');
     const coLine = [co.legal, co.address, co.phone, co.email, co.tin ? 'TIN ' + co.tin : ''].filter(Boolean).map(esc).join(' · ');
