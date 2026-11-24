@@ -77,6 +77,8 @@ body.admin .top{background:#3d220f}body.admin nav{background:light-dark(#f1e2cf,
 body.admin .apptag{background:#e0965c;color:#2b1a0e}
 #salesl{color:#f3d9c2;font-weight:600;text-decoration:none;border:1.5px solid #e0965c;border-radius:10px;padding:10px 14px;white-space:nowrap}
 body:not(.admin) #salesl,body.admin .seg,body.admin #nav-sales,body:not(.admin) #nav-admin{display:none}
+#adminl{color:#bfe3ee;font-weight:600;text-decoration:none;border:1.5px solid #bfe3ee;border-radius:10px;padding:10px 14px;white-space:nowrap}
+body:not(.can-edit) #adminl,body.admin #adminl{display:none}
 .lockbox{max-width:440px;margin:6vh auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px}
 .lockbox form{display:flex;gap:10px;margin-top:14px}.lockbox h2{font-size:26px}
 .lk{width:46px;height:46px;border-radius:12px;background:var(--sea);display:grid;place-items:center;margin-bottom:14px}
@@ -109,6 +111,7 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
  <button id="relock" hidden>Lock</button>
  <button id="signout" hidden>Sign out</button>
  <a id="salesl" href="#find">Open sales tool →</a>
+ <a id="adminl" href="#setup">Admin console →</a>
  <div class="seg" role="group" aria-label="Shipping mode"><button data-mode="sea" class="on">Sea freight</button><button data-mode="air">Air freight</button></div>
 </header>
 <nav id="nav-sales"><a href="#find" data-v="find" class="on">Find a part</a><a href="#quote" data-v="quote">Quote <span class="n" id="qn">0</span></a></nav>
@@ -383,8 +386,11 @@ function renderCov(){
  $('#cov').innerHTML=`<p><b>${pr.toLocaleString()}</b> priced parts, <b>${(D.rows.length-pr).toLocaleString()}</b> part numbers in the parts books but not on the price lists.</p><table><thead><tr><th>Cart model</th><th>Group</th><th class="num">Priced</th><th class="num">Not priced</th></tr></thead><tbody>${rows}</tbody></table>
  <div class="note">Precedent 2009P is missing price files 02 and 06, which is why so many of its parts show no price.</div>`;
 }
-function route(){let v=(location.hash||'#find').slice(1);if(v==='about')v='data';const ok=VIEWS.includes(v)?v:'find';curSec=LK(ok);const open=isOpen(curSec),adm=ADMIN.includes(ok);
- document.body.classList.toggle('admin',adm);
+function route(){let v=(location.hash||'#find').slice(1);if(v==='about')v='data';let ok=VIEWS.includes(v)?v:'find';
+ // One link, view by role: signed-in sales never get the admin console.
+ if(canEdit===false&&ADMIN.includes(ok)){ok='find';history.replaceState(null,'','#find')}
+ curSec=LK(ok);const open=isOpen(curSec),adm=ADMIN.includes(ok);
+ document.body.classList.toggle('admin',adm);document.body.classList.toggle('can-edit',canEdit===true);
  $('#apph').textContent=adm?'SJK Parts Costing':'SJK Parts Pricing';$('#appt').textContent=adm?'ADMIN':'SALES';$('#apps').textContent=adm?'Back end · costing, passwords and parts data':'Club Car spare parts · Golf Carts PH service sales';
  document.title=adm?'SJK Parts · Admin console':'SJK Parts Pricing';
  $$('.view').forEach(s=>s.classList.toggle('on',open?s.id==='v-'+ok:s.id==='v-lock'));
@@ -436,6 +442,7 @@ if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
  else{renderAll();return}
  db=d;
  if(u){try{canEdit=await Promise.resolve(u.canEdit())}catch(e){canEdit=null}}
+ if(B&&canEdit===true&&!location.hash.slice(1))history.replaceState(null,'','#setup');   // admins land in the admin console
  if(!db){readOnly=canEdit===false;route();renderAll();return}   // signed-in sales stay read-only on costing
  readOnly=canEdit===false;shared=true;
  let timer=setTimeout(()=>{$('#savest').textContent='Shared settings are slow to load — showing the last known values.'},10000);
