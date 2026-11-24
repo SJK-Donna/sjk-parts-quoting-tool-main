@@ -154,7 +154,7 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
    <div id="qacc" role="listbox" hidden></div></div>
   <label>Reference<input type="text" id="qr" placeholder="e.g. Cart #12 brake job"></label>
   <label>Margin %<input type="number" id="qm" step="1" style="width:100px"></label>
-  <button class="add" id="cpc">Copy for customer</button><button class="add ghost" id="cpi">Copy with costing</button><button class="add ghost" id="cpp">Preview PDF</button><button class="add ghost" id="qclear">Clear quote</button>
+  <button class="add" id="cpc">PDF for customer</button><button class="add ghost" id="cpi">PDF with costing</button><button class="add ghost" id="qclear">Clear quote</button>
  </div>
  <div class="qbar qbar2" id="qmore" aria-label="Customer details for the PDF proposal">
   <label id="qctl" hidden>Zoho contact<select id="qcsel"></select></label>
@@ -313,7 +313,7 @@ function renderQuote(){
  $$('[data-q]').forEach(el=>el.value=Q[el.dataset.q]??'');
  const perKg=S[mode+'Basis']==='kg';$('#kgh').style.display=perKg?'':'none';
  const rows=qrows();
- $('#qwarn').innerHTML=(qm()<S.floor?`<div class="warn">Margin ${qm()}% is below the ${S.floor}% floor set in Costing setup. Get approval before sending.${needsApproval()?' <b>Copy for customer</b> and <b>Download PDF</b> are locked: use <b>Copy with costing</b> and send it to your admin, who sends the approved quote.':''}</div>`:'')+(perKg?`<div class="note">${mode==='air'?'Air':'Sea'} freight is charged per kg. Weights start from category estimates — type the real weight per unit where you know it.</div>`:'');
+ $('#qwarn').innerHTML=(qm()<S.floor?`<div class="warn">Margin ${qm()}% is below the ${S.floor}% floor set in Costing setup. Get approval before sending.${needsApproval()?' The <b>PDF for customer</b> can be previewed but not downloaded: download the <b>PDF with costing</b> and send it to your admin, who sends the approved quote.':''}</div>`:'')+(perKg?`<div class="note">${mode==='air'?'Air':'Sea'} freight is charged per kg. Weights start from category estimates — type the real weight per unit where you know it.</div>`:'');
  if(!rows.length){$('#ql').innerHTML=`<tr><td colspan="8" class="empty">No parts yet. Go to <a href="#find">Find a part</a> and press Add.</td></tr>`;$('#qt').innerHTML='';return}
  let L=0,T=0;
  $('#ql').innerHTML=rows.map(({l,r,b})=>{L+=b.landed*l.qty;T+=b.sell*l.qty;
@@ -325,22 +325,57 @@ function renderQuote(){
  const vat=T*0.12,gp=T-L;
  $('#qt').innerHTML=`<div><small>Landed cost</small><b>${php(L)}</b></div><div><small>Selling price ex-VAT</small><b>${php(T)}</b></div><div><small>12% VAT</small><b>${php(vat)}</b></div><div><small>Total VAT-inclusive</small><b class="sell">${php(T+vat)}</b></div><div><small>Gross profit (${T?(gp/T*100).toFixed(1):0}%)</small><b>${php(gp)}</b></div>`;
 }
-function copyText(txt){
- const done=()=>{$('#cpbox').innerHTML=`<p class="meta">Copied — paste into Excel, Zoho or an email.</p>`};
- const fail=()=>{$('#cpbox').innerHTML=`<p class="meta">Copy was blocked — select the text below and copy it.</p><pre class="cp">${esc(txt)}</pre>`};
- try{navigator.clipboard.writeText(txt).then(done,fail)}catch(e){fail()}
-}
-function quoteTSV(internal){
- const rows=qrows();let T=0,L=0;
- const h=internal?['Part no.','Description','Qty','Kg/unit','Landed/unit (PHP)','Price/unit ex-VAT (PHP)','Line total (PHP)','GP (PHP)']:['Part no.','Description','Qty','Unit price ex-VAT (PHP)','Line total (PHP)'];
- const lines=rows.map(({l,r,b})=>{T+=b.sell*l.qty;L+=b.landed*l.qty;const f=v=>v.toFixed(2);
-  return (internal?[r[0],r[1],l.qty,b.w,f(b.landed),f(b.sell),f(b.sell*l.qty),f((b.sell-b.landed)*l.qty)]:[r[0],r[1],l.qty,f(b.sell),f(b.sell*l.qty)]).join('\t')});
- const g=k=>(Q[k]||'').trim(),attn=[g('ct'),g('ctt')].filter(Boolean).join(', '),reach=[g('em'),g('ph')].filter(Boolean).join(' · ');
- const head=[`Customer: ${Q.c}`,...(attn?[`Attn: ${attn}`]:[]),...(g('ad')?[`Address: ${g('ad')}`]:[]),...(reach?[`Contact: ${reach}`]:[]),
-  `Reference: ${Q.r}`,...(g('mod')?[`Cart model: Club Car ${g('mod')}`]:[]),`Shipment: ${mode==='air'?'Air':'Sea'} freight`,`Date: ${new Date().toLocaleDateString('en-PH')}`,''];
- const tail=['',`Subtotal ex-VAT\t${T.toFixed(2)}`,`VAT 12%\t${(T*.12).toFixed(2)}`,`Total VAT-inclusive\t${(T*1.12).toFixed(2)}`];
- if(internal)tail.push(`Landed cost\t${L.toFixed(2)}`,`Gross profit\t${(T-L).toFixed(2)}`,`Basis: ${mode} freight, forex ${rate().toFixed(2)}, margin ${qm()}%`);
- return [...head,h.join('\t'),...lines,...tail].join('\n');
+/* ---------- "PDF with costing": internal costing sheet for the admin / approval.
+   Shows landed cost, margin and gross profit, so it is marked INTERNAL and must never go to the customer. ---------- */
+const COSTING_CSS=`@page{size:A4;margin:14mm 15mm 16mm}
+*{box-sizing:border-box}body{font:9pt/1.45 Inter,"Segoe UI",system-ui,sans-serif;color:#13242e;margin:0;background:#fff;-webkit-font-smoothing:antialiased}
+.sheet{max-width:180mm;margin:0 auto}
+.ban{background:#fde9f3;border-left:4px solid #d6127e;color:#8a0c52;font-weight:700;padding:2.5mm 4mm;margin-bottom:4mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #13242e;padding-bottom:4mm}
+.brand b{display:block;font-size:18pt;font-weight:800;line-height:1}.brand span{font-size:8.5pt;color:#56676f}
+.doc{text-align:right}.doc h1{font-size:14pt;margin:0 0 1mm;font-weight:800;white-space:nowrap}.doc div{font-size:9pt}
+.meta{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin:4mm 0}
+.box{background:#f2f5f2;border-radius:4px;padding:3mm 4mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}.box h3{font-size:8pt;color:#56676f;margin:0 0 1mm;font-weight:600;letter-spacing:.02em}.box p{margin:0}
+.flag{background:#fde9f3;border-radius:4px;padding:2.5mm 4mm;margin:0 0 3mm;font-weight:600;color:#8a0c52;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+table{width:100%;border-collapse:collapse;margin-top:2mm}thead{display:table-header-group}
+th{background:#13242e;color:#fff;font-size:8pt;text-align:left;padding:1.8mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+td{padding:1.8mm;border-bottom:1px solid #dcdfd2;vertical-align:top}tr{page-break-inside:avoid}
+.c{text-align:center}.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.pn{font-weight:600;white-space:nowrap}.fit{font-size:7.5pt;color:#56676f}
+.tot{width:95mm;margin:3mm 0 0 auto}.tot td{border:0;padding:1.2mm 2mm}.tot tr.g td{border-top:2px solid #13242e;font-weight:800;font-size:11pt}
+.ft{display:none}
+@media screen{body{background:#e9ece6;padding:8mm 0}.sheet{background:#fff;padding:14mm 15mm;box-shadow:0 2px 12px rgba(0,0,0,.12);max-width:210mm}
+ .ft{display:flex;justify-content:space-between;font-size:7.5pt;color:#56676f;margin-top:8mm;border-top:1px solid #dcdfd2;padding-top:2mm}}
+body.capture{background:#fff!important;padding:0!important}.capture .sheet{box-shadow:none!important;padding:14mm 15mm 6mm!important;max-width:none!important;width:210mm}.capture .ft{display:none!important}
+@media screen and (max-width:700px){body{padding:0}.sheet{padding:6mm;box-shadow:none}.meta{grid-template-columns:1fr}.hd{flex-direction:column}.doc{text-align:left}}`;
+function buildCosting(){
+ const base=buildProposal();if(base.err)return base;          // same checks, number and dates as the customer PDF
+ const rows=qrows(),perKg=S[mode+'Basis']==='kg',money=v=>(+v).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+ const g=k=>(Q[k]||'').trim(),ver=base.ver,fmt=iso=>new Date(iso+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+ let L=0,T=0;
+ const tr=rows.map(({l,r,b},i)=>{L+=b.landed*l.qty;T+=b.sell*l.qty;
+  return `<tr><td class="c">${i+1}</td><td class="pn">${esc(r[0])}</td><td>${esc(r[1])}<div class="fit">${esc(D.cats[r[5]])} · ${b.o==='CN'?'China (FCA)':'USA'}</div></td><td class="c">${l.qty}</td>${perKg?`<td class="n">${b.w}</td>`:''}<td class="n">${money(b.landed)}</td><td class="n">${money(b.sell)}</td><td class="n">${money(b.sell*l.qty)}</td><td class="n">${money((b.sell-b.landed)*l.qty)}</td></tr>`}).join('');
+ const vat=Math.round(T*0.12*100)/100,gp=T-L,gpPct=T?gp/T*100:0,below=qm()<S.floor;
+ const basis=S[mode+'Basis']==='pct'?`USA ${S[mode+'USpct']}% / China ${S[mode+'CNpct']}% of buy price`:`USD ${S[mode+'USkg']} / ${S[mode+'CNkg']} per kg`;
+ const B=window.SJK_BACKEND,u=B&&B.user?B.user():null,rep=u?[u.name||u.email,u.title].filter(Boolean).join(', '):'';
+ const attn=[g('ct'),g('ctt')].filter(Boolean).join(', ');
+ const html=`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<title>${esc(ver.no)} internal costing</title><style>${COSTING_CSS}</style></head><body><div class="sheet">
+<div class="ban">INTERNAL COSTING — shows landed cost and profit. Do not send to the customer.</div>
+<div class="hd"><div class="brand"><b>Golf Carts PH</b><span>SJK GUAHAN INC. · internal use only</span></div>
+<div class="doc"><h1>QUOTE COSTING</h1><div>No. <b>${esc(ver.no)}</b></div><div>Date: ${fmt(ver.date)}</div></div></div>
+<div class="meta"><div class="box"><h3>CUSTOMER</h3><p><b>${esc(Q.c.trim())}</b>${attn?'<br>Attn: '+esc(attn):''}${g('ad')?'<br>'+esc(g('ad')):''}<br>Reference: ${esc(Q.r.trim()||'—')}${g('mod')?'<br>Cart model: Club Car '+esc(g('mod')):''}</p></div>
+<div class="box"><h3>COSTING BASIS</h3><p>Shipment: <b>${mode==='air'?'Air':'Sea'} freight</b> · ${esc(basis)}<br>Forex: ₱${rate().toFixed(2)} per USD (rate + buffer)<br>Margin: <b>${qm()}%</b> · minimum ${S.floor}%${rep?'<br>Prepared by: '+esc(rep):''}</p></div></div>
+${below?`<div class="flag">Margin ${qm()}% is below the ${S.floor}% minimum — needs an admin's approval before the customer PDF is sent.</div>`:''}
+<table><thead><tr><th class="c" style="width:5%">#</th><th style="width:13%">Part no.</th><th>Description</th><th class="c" style="width:6%">Qty</th>${perKg?'<th class="n">Kg/unit</th>':''}<th class="n">Landed/unit (₱)</th><th class="n">Price/unit (₱)</th><th class="n">Line total (₱)</th><th class="n">Gross profit (₱)</th></tr></thead>
+<tbody>${tr}</tbody></table>
+<table class="tot"><tr><td>Landed cost</td><td class="n">₱${money(L)}</td></tr><tr><td>Selling price (VAT-exclusive)</td><td class="n">₱${money(T)}</td></tr>
+<tr><td>VAT 12%</td><td class="n">₱${money(vat)}</td></tr><tr><td>Total (VAT-inclusive)</td><td class="n">₱${money(T+vat)}</td></tr>
+<tr class="g"><td>Gross profit (${gpPct.toFixed(1)}%)</td><td class="n">₱${money(gp)}</td></tr></table>
+<div class="ft"><span>INTERNAL COSTING — not for the customer</span><span>${esc(ver.no)} · page numbers appear in the PDF</span></div>
+</div></body></html>`;
+ return {ver,html,kind:'costing',title:'Internal costing · '+ver.no,name:base.name.replace(/\.pdf$/,' - INTERNAL COSTING.pdf'),footer:{left:'INTERNAL COSTING - not for the customer',right:ver.no}};
 }
 
 /* ---------- PDF proposal (layout of "Sample Proposal - SP-GC-07680-v1.pdf"; js/proposal.js + js/pdf.js) ----------
@@ -370,23 +405,25 @@ function buildProposal(){
  const rep=u?{name:u.name||u.email,email:u.email,title:u.title||'',mobile:u.mobile||''}:null;
  return {q,ver,html:Proposal.render(q,ver,PROPOSAL,rep),name:Proposal.fileName(q,ver),footer:Proposal.footer(PROPOSAL,ver)};
 }
-function previewPdf(){
+const pdfLocked=()=>!!pdfDoc&&pdfDoc.kind!=='costing'&&needsApproval();   // the customer PDF is locked below the minimum for sales
+function previewPdf(kind){
  if(!window.Proposal){$('#cpbox').innerHTML='<p class="meta">The proposal layout could not load. Reload the page.</p>';return}
- const p=buildProposal();if(p.err){$('#cpbox').innerHTML=`<div class="warn">${esc(p.err)}</div>`;return}
- pdfDoc=p;$('#cpbox').innerHTML='';
- $('#pdft').textContent=p.ver.no;$('#pdfst').textContent=qm()<S.floor?`Margin ${qm()}% is below the ${S.floor}% floor — get approval before sending.`:'';
- $('#pdff').srcdoc=p.html;$('#pdfm').hidden=false;$('#pdfdl').disabled=needsApproval();$('#pdfdl').textContent=needsApproval()?'Download needs admin approval':'Download PDF';$('#pdfdl').focus();
+ const p=kind==='costing'?buildCosting():buildProposal();if(p.err){$('#cpbox').innerHTML=`<div class="warn">${esc(p.err)}</div>`;return}
+ p.kind=kind;pdfDoc=p;$('#cpbox').innerHTML='';
+ $('#pdft').textContent=p.title||p.ver.no;
+ $('#pdfst').textContent=kind==='costing'?'Internal — shows landed cost and profit. Do not send to the customer.':qm()<S.floor?`Margin ${qm()}% is below the ${S.floor}% floor — get approval before sending.`:'';
+ $('#pdff').srcdoc=p.html;$('#pdfm').hidden=false;$('#pdfdl').disabled=pdfLocked();$('#pdfdl').textContent=pdfLocked()?'Download needs admin approval':'Download PDF';$('#pdfdl').focus();
  if(window.ProposalPdf)window.ProposalPdf.loadLibs().catch(()=>{});
 }
 async function downloadPdf(){
- if(!pdfDoc||needsApproval())return;const btn=$('#pdfdl');btn.disabled=true;btn.textContent='Making PDF…';
+ if(!pdfDoc||pdfLocked())return;const btn=$('#pdfdl');btn.disabled=true;btn.textContent='Making PDF…';
  try{const blob=await window.ProposalPdf.make(pdfDoc.html,pdfDoc.footer);
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=pdfDoc.name;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),60000);btn.textContent='Downloaded ✓'}
  catch(e){btn.textContent='Download PDF';$('#pdfst').textContent='Could not make the PDF: '+(e.message||e)}
  finally{btn.disabled=false}
 }
-const closePdf=()=>{$('#pdfm').hidden=true;$('#pdff').srcdoc='';$('#cpp').focus()};
+const closePdf=()=>{$('#pdfm').hidden=true;$('#pdff').srcdoc='';$(pdfDoc&&pdfDoc.kind==='costing'?'#cpi':'#cpc').focus()};
 
 /* ---------- setup ---------- */
 const FORM=[
@@ -549,7 +586,7 @@ $('#qacc').addEventListener('keydown',e=>{if(e.key==='Escape'){closeAcc();$('#qc
  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const bs=[...$$('#qacc button')],i=bs.indexOf(document.activeElement);(bs[i+(e.key==='ArrowDown'?1:-1)]||(e.key==='ArrowUp'?$('#qc'):null))?.focus()}});
 $('#qc').addEventListener('keydown',e=>{if(e.key==='ArrowDown'&&!$('#qacc').hidden){e.preventDefault();$('#qacc button')?.focus()}if(e.key==='Escape')closeAcc()});
 document.addEventListener('click',e=>{if(!e.target.closest('.cwrap'))closeAcc()});
-$('#qc').addEventListener('input',e=>{Q.c=e.target.value;
+$('#qc').addEventListener('input',e=>{Q.c=e.target.value;$('#cpbox').innerHTML='';
  if(Q.acct){Q.acct=null;showZohoLink();$('#qctl').hidden=true}   // typed over a Zoho customer: no longer linked
  saveQ();searchAccounts(e.target.value)});
 $('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
@@ -558,10 +595,8 @@ $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.va
 $('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;closeAcc()});
 /* Golden rule 2: a signed-in sales rep can't send a below-minimum quote to the customer; an admin (the approver) can. */
 const needsApproval=()=>canEdit===false&&qm()<S.floor;
-const approvalMsg=()=>`<div class="warn">Margin ${qm()}% is below the ${S.floor}% minimum, so this quote needs an admin's approval before it goes to the customer. Use <b>Copy with costing</b> and send it to your admin.</div>`;
-$('#cpc').addEventListener('click',()=>{if(needsApproval()){$('#cpbox').innerHTML=approvalMsg();return}copyText(quoteTSV(false))});
-$('#cpi').addEventListener('click',()=>copyText(quoteTSV(true)));
-$('#cpp').addEventListener('click',previewPdf);
+$('#cpc').addEventListener('click',()=>previewPdf('customer'));
+$('#cpi').addEventListener('click',()=>previewPdf('costing'));
 $('#pdfdl').addEventListener('click',downloadPdf);
 $('#pdfx').addEventListener('click',closePdf);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#pdfm').hidden)closePdf()});
