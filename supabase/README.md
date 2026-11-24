@@ -14,7 +14,9 @@ Run it again even if you ran an earlier version: it adds the `profiles` table (r
 "changed by" column, and keeps what's already there.
 (Don't run `schema.sql`; it belongs to the old full tool.)
 
-## 2. Function
+## 2. Function (optional for now)
+Without it, sign-in still works and costing saves on each device. Deploy it when you want costing shared.
+
 **Edge Functions** → `parts-api` (or **Deploy a new function → Via Editor**, name `parts-api`) → paste the whole of
 [`functions/parts-api/index.ts`](functions/parts-api/index.ts) → **Deploy**.
 In the function's **Details/Settings**, turn **OFF "Verify JWT"**. The function checks the sign-in itself.

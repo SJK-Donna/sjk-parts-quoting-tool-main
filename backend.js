@@ -68,12 +68,25 @@
 
   // ---- sign-in: `ready` resolves once a signed-in, active person is known ----
   var NO_ACCESS = 'This account has no access to the tool. Ask your manager.';
-  var NO_SERVER = "Signed in, but the tool's server (parts-api) isn't reachable or set up yet. Ask your admin.";
-  var whyFailed = function (err) { return err && err.code === 'invalid_argument' ? NO_ACCESS : NO_SERVER; };
+  var NO_PROFILE = 'Signed in, but your role could not be read. Ask your admin to run supabase/parts-api.sql.';
+  var whyFailed = function (err) { return err && err.code === 'invalid_argument' ? NO_ACCESS : NO_PROFILE; };
+  // Without the parts-api function: read the person's own role straight from the profiles table
+  // (allowed by the "read own profile" rule in parts-api.sql). Costing then saves on this device only.
+  async function ownProfile() {
+    var u = await sb.auth.getUser();
+    if (u.error || !u.data.user) throw new Error('No user');
+    var r = await sb.from('profiles').select('email,name,role,active').eq('id', u.data.user.id).maybeSingle();
+    if (r.error) throw new Error(r.error.message);
+    if (!r.data || !r.data.active) { var e = new Error('No access'); e.code = 'invalid_argument'; throw e; }
+    return r.data;
+  }
   var ready = new Promise(function (resolve) {
     async function finish() {
-      me = await request('GET', '/me');
-      if (!me || !me.role) throw new Error('No answer from parts-api');
+      var viaServer = null;
+      try { viaServer = await request('GET', '/me'); }
+      catch (err) { if (err.code === 'invalid_argument') throw err; }   // function says: no access
+      if (viaServer && viaServer.role) { me = viaServer; window.SJK_BACKEND.shared = true; }
+      else { me = await ownProfile(); window.SJK_BACKEND.shared = false; }   // parts-api not deployed yet
       $('#signin').hidden = true;
       var so = $('#signout');
       so.hidden = false; so.title = 'Signed in as ' + me.email + (me.role === 'admin' ? ' (admin)' : '');
@@ -131,6 +144,7 @@
 
   window.SJK_BACKEND = {
     ready: ready,
+    shared: null,         // after sign-in: true = parts-api reachable (shared costing), false = this device only
     partsUrl: CONFIG.partsUrl || null,
     doc: doc,
     canEdit: function () { return Promise.resolve(!!me && me.role === 'admin'); },   // admin = the guide's Editor

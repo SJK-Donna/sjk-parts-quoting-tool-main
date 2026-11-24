@@ -70,7 +70,12 @@ alter table public.profiles         enable row level security;
 alter table public.shared_settings  enable row level security;
 alter table public.settings_history enable row level security;
 alter table public.unlock_failures  enable row level security;
--- (No policies on purpose.)
+
+-- The one browser rule: a signed-in person may read their OWN profile row (their role),
+-- so sign-in works even before the parts-api function is deployed. Nobody can read anyone else's
+-- row, and nobody can change roles from the browser. All other tables: no policies on purpose.
+drop policy if exists "profiles: read own" on public.profiles;
+create policy "profiles: read own" on public.profiles for select to authenticated using (id = auth.uid());
 
 -- Not used any more (sign-in replaced it). Safe to keep or delete:
 -- drop table if exists public.unlock_tokens;

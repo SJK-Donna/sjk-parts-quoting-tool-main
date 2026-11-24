@@ -431,12 +431,12 @@ if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
  // With neither, costing saves on this device only, exactly as the guide's troubleshooting describes.
  const B=window.SJK_BACKEND,use=window.claude?.use;
  let d=null,u=null;
- if(B){if(B.ready)await B.ready;d=B;u=B.canEdit?{canEdit:()=>B.canEdit()}:null}   // ready = signed in
+ if(B){if(B.ready)await B.ready;d=B.shared===false?null:B;u=B.canEdit?{canEdit:()=>B.canEdit()}:null}   // ready = signed in; shared=false → parts-api not deployed, costing on this device
  else if(use){[d,u]=await Promise.all([use('db').catch(()=>null),use('user').catch(()=>null)])}
  else{renderAll();return}
  db=d;
  if(u){try{canEdit=await Promise.resolve(u.canEdit())}catch(e){canEdit=null}}
- if(!db){route();renderAll();return}
+ if(!db){readOnly=canEdit===false;route();renderAll();return}   // signed-in sales stay read-only on costing
  readOnly=canEdit===false;shared=true;
  let timer=setTimeout(()=>{$('#savest').textContent='Shared settings are slow to load — showing the last known values.'},10000);
  db.doc('settings/locks').onSnapshot(s=>{
