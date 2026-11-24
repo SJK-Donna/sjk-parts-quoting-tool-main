@@ -22,6 +22,8 @@
 //
 // Zoho CRM: set these as function secrets (supabase/README.md → "Connect Zoho CRM"):
 //   ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN  (a Zoho "Self Client")
+//   Sandbox: also ZOHO_SANDBOX_REFRESH_TOKEN (a code generated for the sandbox) and ZOHO_API_DOMAIN=https://sandbox.zohoapis.com.
+//   Zoho binds each token to one environment, so the function picks the sandbox token whenever the API domain is the sandbox.
 //   optional ZOHO_ACCOUNTS_URL (default https://accounts.zoho.com), ZOHO_API_DOMAIN (default https://www.zohoapis.com)
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor → name it parts-api →
@@ -76,16 +78,19 @@ const putSetting = async (name, value, by) => {
 const ZOHO = {
   id: Deno.env.get("ZOHO_CLIENT_ID") || "",
   secret: Deno.env.get("ZOHO_CLIENT_SECRET") || "",
-  refresh: Deno.env.get("ZOHO_REFRESH_TOKEN") || "",
+  refresh: "",
   accounts: (Deno.env.get("ZOHO_ACCOUNTS_URL") || "https://accounts.zoho.com").replace(/\/$/, ""),
   api: (Deno.env.get("ZOHO_API_DOMAIN") || "https://www.zohoapis.com").replace(/\/$/, ""),
 };
+ZOHO.sandbox = /sandbox/i.test(ZOHO.api);
+ZOHO.refresh = (ZOHO.sandbox ? Deno.env.get("ZOHO_SANDBOX_REFRESH_TOKEN") : "") || Deno.env.get("ZOHO_REFRESH_TOKEN") || "";
+const ZOHO_CACHE = ZOHO.sandbox ? "access_token_sandbox" : "access_token";   // never reuse a production token for the sandbox (or back)
 const zohoConfigured = () => !!(ZOHO.id && ZOHO.secret && ZOHO.refresh);
 let zohoMem = { token: "", exp: 0 };
 async function zohoToken() {
   if (zohoMem.token && Date.now() < zohoMem.exp) return zohoMem.token;
   // Shared cache in the database: Zoho allows only a few new access tokens per 10 minutes.
-  const rows = await db("GET", `/zoho_cache?name=eq.access_token&select=value,expires_at`);
+  const rows = await db("GET", `/zoho_cache?name=eq.${ZOHO_CACHE}&select=value,expires_at`);
   if (rows && rows[0] && new Date(rows[0].expires_at).getTime() > Date.now() + 60000) {
     zohoMem = { token: rows[0].value, exp: new Date(rows[0].expires_at).getTime() - 60000 };
     return zohoMem.token;
@@ -95,7 +100,7 @@ async function zohoToken() {
   const j = await res.json().catch(() => ({}));
   if (!j.access_token) throw Object.assign(new Error("Zoho sign-in failed: " + (j.error || res.status)), { status: 502 });
   const exp = Date.now() + (Number(j.expires_in) || 3600) * 1000;
-  await db("POST", "/zoho_cache", { name: "access_token", value: j.access_token, expires_at: new Date(exp).toISOString() }, "resolution=merge-duplicates");
+  await db("POST", "/zoho_cache", { name: ZOHO_CACHE, value: j.access_token, expires_at: new Date(exp).toISOString() }, "resolution=merge-duplicates");
   zohoMem = { token: j.access_token, exp: exp - 60000 };
   return zohoMem.token;
 }
@@ -106,10 +111,14 @@ async function zoho(method, path) {
     const j = await res.json().catch(() => ({}));
     if (res.status === 401 && attempt === 0) {                         // token expired early: get a new one once
       zohoMem = { token: "", exp: 0 };
-      await db("DELETE", `/zoho_cache?name=eq.access_token`);
+      await db("DELETE", `/zoho_cache?name=eq.${ZOHO_CACHE}`);
       continue;
     }
-    if (!res.ok) throw Object.assign(new Error("Zoho: " + (j.message || j.code || res.status)), { status: 502 });
+    if (!res.ok) {
+      const msg = String(j.message || j.code || res.status);
+      if (/environment/i.test(msg)) throw Object.assign(new Error("Zoho: the Zoho login is for " + (ZOHO.sandbox ? "production, but the tool is set to the sandbox. Set ZOHO_SANDBOX_REFRESH_TOKEN (supabase/README.md)." : "the sandbox, but the tool is set to production.")), { status: 502 });
+      throw Object.assign(new Error("Zoho: " + msg), { status: 502 });
+    }
     return j;
   }
   throw Object.assign(new Error("Zoho: not authorised"), { status: 502 });

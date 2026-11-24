@@ -97,6 +97,21 @@ secret. It never goes to the browser.
    - Terminal: `npx supabase functions deploy parts-api --project-ref pitfqmvanfnaxsdajhzr --no-verify-jwt` → **Yes**.
 5. Open the tool, press Ctrl+F5, go to **Quote**. The Customer box should say *"Search Zoho accounts (2+ letters)"*.
 
+### Zoho Sandbox (test Deals there first)
+Zoho ties each login to one environment, so the sandbox needs its own refresh token:
+1. api-console.zoho.com → your Self Client → **Generate Code** (same scope as above) → **Create**. When it asks
+   which organisation/environment, choose the **Sandbox** (`sjkguahan`). Copy the code.
+2. In PowerShell (same Client ID and Secret as before):
+   ```powershell
+   $id = "PASTE_CLIENT_ID"; $secret = "PASTE_CLIENT_SECRET"; $code = "PASTE_SANDBOX_CODE"
+   $r = Invoke-RestMethod -Method Post "https://accounts.zoho.com/oauth/v2/token?grant_type=authorization_code&client_id=$id&client_secret=$secret&code=$code"
+   if ($r.refresh_token) { npx supabase secrets set --project-ref pitfqmvanfnaxsdajhzr ZOHO_SANDBOX_REFRESH_TOKEN=$($r.refresh_token) } else { $r }
+   ```
+3. Use the sandbox: `npx supabase secrets set --project-ref pitfqmvanfnaxsdajhzr ZOHO_API_DOMAIN=https://sandbox.zohoapis.com`
+4. Back to production later: `npx supabase secrets unset --project-ref pitfqmvanfnaxsdajhzr ZOHO_API_DOMAIN`
+
+The function picks the right token from `ZOHO_API_DOMAIN`, so switching is just step 3 or 4.
+
 Your Zoho CRM lives on the **.com** data centre (crm.zoho.com). If that ever changes, set the
 `ZOHO_ACCOUNTS_URL` / `ZOHO_API_DOMAIN` secrets to match (e.g. `https://accounts.zoho.com.au`).
 
