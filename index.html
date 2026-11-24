@@ -58,6 +58,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--panel)}
 .big{font-size:clamp(26px,4vw,40px);font-weight:800;color:var(--mag);line-height:1}
 .qbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:14px}
 .qbar label{font-size:13px;color:var(--mut);display:grid;gap:4px}
+.qbar2{margin-top:-4px}.qbar2 label{flex:1 1 160px;max-width:220px}.qbar2 label.wide{flex:2 1 280px;max-width:420px}
 .qtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
 .qtot div{background:var(--panel);border-radius:10px;padding:12px 14px}.qtot b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.qtot small{color:var(--mut)}
 td input[type=number]{width:84px;min-height:38px;text-align:right}
@@ -144,6 +145,14 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
   <label>Reference<input type="text" id="qr" placeholder="e.g. Cart #12 brake job"></label>
   <label>Margin %<input type="number" id="qm" step="1" style="width:100px"></label>
   <button class="add" id="cpc">Copy for customer</button><button class="add ghost" id="cpi">Copy with costing</button><button class="add ghost" id="cpp">Preview PDF</button><button class="add ghost" id="qclear">Clear quote</button>
+ </div>
+ <div class="qbar qbar2" id="qmore" aria-label="Customer details for the PDF proposal">
+  <label>Contact person<input type="text" data-q="ct" placeholder="e.g. Juan Dela Cruz" autocomplete="off"></label>
+  <label>Position<input type="text" data-q="ctt" placeholder="e.g. Fleet Manager" autocomplete="off"></label>
+  <label class="wide">Address<input type="text" data-q="ad" placeholder="e.g. Km 30 Sample Road, Silang, Cavite" autocomplete="off"></label>
+  <label>Email<input type="text" inputmode="email" data-q="em" placeholder="name@company.com" autocomplete="off"></label>
+  <label>Phone<input type="text" inputmode="tel" data-q="ph" placeholder="e.g. 0917 000 0000" autocomplete="off"></label>
+  <label>Cart model<select id="qmod" data-q="mod"><option value="">Various</option></select></label>
  </div>
  <div id="qwarn"></div>
  <table class="rt"><thead><tr><th>Part no.</th><th>Description</th><th class="num">Qty</th><th class="num" id="kgh">Kg / unit</th><th class="num hm">Landed / unit</th><th class="num">Price / unit</th><th class="num">Line total</th><th></th></tr></thead><tbody id="ql"></tbody></table>
@@ -283,6 +292,8 @@ function saveQ(){ls.set('sjk_quote',Q);$('#qn').textContent=Q.lines.length}
 function qrows(){return Q.lines.map(l=>{const r=D.rows[BYPN[l.pn]];return {l,r,b:calc(r,l.kg??undefined,qm())}}).filter(x=>x.r&&x.b)}
 function renderQuote(){
  $('#qc').value=Q.c;$('#qr').value=Q.r;$('#qm').value=qm();
+ if($('#qmod').options.length<2)$('#qmod').innerHTML='<option value="">Various</option>'+D.models.map(m=>`<option>${esc(m[0])}</option>`).join('');
+ $$('[data-q]').forEach(el=>el.value=Q[el.dataset.q]??'');
  const perKg=S[mode+'Basis']==='kg';$('#kgh').style.display=perKg?'':'none';
  const rows=qrows();
  $('#qwarn').innerHTML=(qm()<S.floor?`<div class="warn">Margin ${qm()}% is below the ${S.floor}% floor set in Costing setup. Get approval before sending.</div>`:'')+(perKg?`<div class="note">${mode==='air'?'Air':'Sea'} freight is charged per kg. Weights start from category estimates — type the real weight per unit where you know it.</div>`:'');
@@ -307,7 +318,9 @@ function quoteTSV(internal){
  const h=internal?['Part no.','Description','Qty','Kg/unit','Landed/unit (PHP)','Price/unit ex-VAT (PHP)','Line total (PHP)','GP (PHP)']:['Part no.','Description','Qty','Unit price ex-VAT (PHP)','Line total (PHP)'];
  const lines=rows.map(({l,r,b})=>{T+=b.sell*l.qty;L+=b.landed*l.qty;const f=v=>v.toFixed(2);
   return (internal?[r[0],r[1],l.qty,b.w,f(b.landed),f(b.sell),f(b.sell*l.qty),f((b.sell-b.landed)*l.qty)]:[r[0],r[1],l.qty,f(b.sell),f(b.sell*l.qty)]).join('\t')});
- const head=[`Customer: ${Q.c}`,`Reference: ${Q.r}`,`Date: ${new Date().toLocaleDateString('en-PH')}`,''];
+ const g=k=>(Q[k]||'').trim(),attn=[g('ct'),g('ctt')].filter(Boolean).join(', '),reach=[g('em'),g('ph')].filter(Boolean).join(' · ');
+ const head=[`Customer: ${Q.c}`,...(attn?[`Attn: ${attn}`]:[]),...(g('ad')?[`Address: ${g('ad')}`]:[]),...(reach?[`Contact: ${reach}`]:[]),
+  `Reference: ${Q.r}`,...(g('mod')?[`Cart model: Club Car ${g('mod')}`]:[]),`Date: ${new Date().toLocaleDateString('en-PH')}`,''];
  const tail=['',`Subtotal ex-VAT\t${T.toFixed(2)}`,`VAT 12%\t${(T*.12).toFixed(2)}`,`Total VAT-inclusive\t${(T*1.12).toFixed(2)}`];
  if(internal)tail.push(`Landed cost\t${L.toFixed(2)}`,`Gross profit\t${(T-L).toFixed(2)}`,`Basis: ${mode} freight, forex ${rate().toFixed(2)}, margin ${qm()}%`);
  return [...head,h.join('\t'),...lines,...tail].join('\n');
@@ -332,9 +345,12 @@ function buildProposal(){
  const lines=rows.map(({l,r,b})=>({pn:r[0],desc:r[1],fits:r[6].map(i=>D.models[i][0]).join(', '),qty:l.qty,unitSell:b.sell}));
  const sub=r2(lines.reduce((t,x)=>t+x.unitSell*x.qty,0)),vat=r2(sub*0.12);
  const B=window.SJK_BACKEND,u=B&&B.user?B.user():null;
- const q={customer:{account:{Account_Name:Q.c.trim()}},reference:Q.r.trim(),model:null,deal:null,zoho:{}};
+ const g=k=>(Q[k]||'').trim();
+ // Same shape as the full tool's Zoho account/contact, so "Prepared for" prints like the sample proposal.
+ const contact=(g('ct')||g('ctt')||g('em')||g('ph'))?{First_Name:'',Last_Name:g('ct'),Title:g('ctt'),Email:g('em'),Mobile:g('ph')}:null;
+ const q={customer:{account:{Account_Name:Q.c.trim(),Billing_Street:g('ad'),Phone:g('ph')},contact},reference:Q.r.trim(),model:g('mod')||null,deal:null,zoho:{}};
  const ver={no:'SP-DRAFT-'+iso(today).replace(/-/g,''),date:iso(today),validUntil:iso(until),lines,totals:{sub,vat,total:r2(sub+vat)},mode,approval:null};
- const rep=u?{name:u.name||u.email,email:u.email,title:'',mobile:''}:null;
+ const rep=u?{name:u.name||u.email,email:u.email,title:u.title||'',mobile:u.mobile||''}:null;
  return {q,ver,html:Proposal.render(q,ver,PROPOSAL,rep),name:Proposal.fileName(q,ver),footer:Proposal.footer(PROPOSAL,ver)};
 }
 function previewPdf(){
@@ -468,6 +484,7 @@ $('#ql').addEventListener('change',e=>{const t=e.target;let l;
 $('#ql').addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){Q.lines=Q.lines.filter(x=>x.pn!==d.dataset.del);saveQ();renderQuote();renderRes()}});
 $('#qc').addEventListener('input',e=>{Q.c=e.target.value;saveQ()});
 $('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
+$('#qmore').addEventListener('input',e=>{const k=e.target.dataset.q;if(k){Q[k]=e.target.value;saveQ()}});
 $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.value;saveQ();renderQuote()});
 $('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML=''});
 $('#cpc').addEventListener('click',()=>copyText(quoteTSV(false)));

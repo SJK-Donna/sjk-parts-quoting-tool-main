@@ -34,6 +34,10 @@ end $$;
 -- If the older schema.sql (full tool) was run, profiles exists with active defaulting to false. Fix that.
 alter table public.profiles alter column active set default true;
 
+-- Printed under "Prepared by" on the PDF proposal, e.g. "Juan Santos, Service Executive · 0917 …".
+alter table public.profiles add column if not exists title  text not null default '';
+alter table public.profiles add column if not exists mobile text not null default '';
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();

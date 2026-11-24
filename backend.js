@@ -12,7 +12,7 @@
  * costing on this device only (the guide's troubleshooting case).
  *
  * ── REST contract of the parts-api function (JSON, every call carries the person's session) ──────
- * GET  /me                  → { email, name, role }                    401 if not signed in / deactivated
+ * GET  /me                  → { email, name, role, title, mobile }                    401 if not signed in / deactivated
  * GET  /settings/current    → { ...settings, updatedAt }  (404 if never saved)
  * PUT  /settings/current    admins only (403 otherwise → "Only editors can change costing.")
  * GET  /settings/locks      → { find:{hash,setAt}, quote:{...}, setup:{...} }  version strings only, never hashes
@@ -75,7 +75,9 @@
   async function ownProfile() {
     var u = await sb.auth.getUser();
     if (u.error || !u.data.user) throw new Error('No user');
-    var r = await sb.from('profiles').select('email,name,role,active').eq('id', u.data.user.id).maybeSingle();
+    var r = await sb.from('profiles').select('email,name,role,active,title,mobile').eq('id', u.data.user.id).maybeSingle();
+    if (r.error && /title|mobile|column/i.test(r.error.message))      // SQL not re-run yet: no title/mobile columns
+      r = await sb.from('profiles').select('email,name,role,active').eq('id', u.data.user.id).maybeSingle();
     if (r.error) throw new Error(r.error.message);
     if (!r.data || !r.data.active) { var e = new Error('No access'); e.code = 'invalid_argument'; throw e; }
     return r.data;

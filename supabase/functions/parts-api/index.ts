@@ -67,7 +67,7 @@ async function currentUser(req) {
   if (!res.ok) return null;
   const u = await res.json();
   if (!u || !u.id) return null;
-  const rows = await db("GET", `/profiles?id=eq.${encodeURIComponent(u.id)}&select=id,email,name,role,active`);
+  const rows = await db("GET", `/profiles?id=eq.${encodeURIComponent(u.id)}&select=*`);
   const p = rows && rows[0];
   return p && p.active ? p : null;
 }
@@ -95,7 +95,7 @@ export async function handle(req) {
     if (!me) return reply(401, { error: "Please sign in." });
     const admin = me.role === "admin";
 
-    if (path === "/me" && req.method === "GET") return reply(200, { email: me.email, name: me.name, role: me.role });
+    if (path === "/me" && req.method === "GET") return reply(200, { email: me.email, name: me.name, role: me.role, title: me.title || "", mobile: me.mobile || "" });
 
     if (path === "/settings/current" && req.method === "GET") {
       const v = await getSetting("current");
