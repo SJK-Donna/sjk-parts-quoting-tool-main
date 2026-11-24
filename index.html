@@ -231,12 +231,6 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
  <p class="meta" id="ust" role="status"></p>
  <div id="ulist"></div>
  </div>
- <div class="zconn" id="zcard" hidden>
-  <h3 style="margin-top:22px">Zoho CRM connection</h3>
-  <p class="meta" style="margin-top:0">The tool is connected to <b id="zenv">…</b>. To connect it or give it new permissions: in <b>api-console.zoho.com</b> → your Self Client → <b>Generate Code</b>, scope <code style="font-size:12px;word-break:break-all">ZohoCRM.modules.ALL,ZohoCRM.settings.READ,ZohoCRM.users.READ,ZohoCRM.Files.CREATE,ZohoCRM.coql.READ</code>, choose <b id="zenv2">…</b> → <b>Create</b>, then paste the code here within 10 minutes.</p>
-  <form id="zconnf" class="uadd" autocomplete="off"><label>Code from Zoho<input type="text" name="code" required placeholder="1000.xxxxxxxx.xxxxxxxx"></label><button class="add">Connect</button></form>
-  <p class="meta" id="zst" role="status"></p>
- </div>
  <p class="meta" id="unoadmin">Users can be managed here once you're signed in as an admin and the parts-api server is up.</p>
 </div></div></section>
 <section class="view about" id="v-data">
@@ -577,7 +571,7 @@ function route(){let v=(location.hash||'#find').slice(1);if(v==='about')v='data'
  $$('.view').forEach(s=>s.classList.toggle('on',open?s.id==='v-'+ok:s.id==='v-lock'));
  if(!open){$('#lockt').textContent=SECS[curSec].replace(' (sales)','')+' is locked';$('#locke').textContent='';$('#lockp').value='';setTimeout(()=>$('#lockp').focus(),50)}
  $$('nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===ok));
- if(D&&open){if(ok==='setup')renderSetup();if(ok==='access'){renderPw();renderUsers();renderZohoCard()}if(ok==='quote')renderQuote();if(ok==='find'){renderCats();renderRes()}if(ok==='data')renderCov()}}
+ if(D&&open){if(ok==='setup')renderSetup();if(ok==='access'){renderPw();renderUsers()}if(ok==='quote')renderQuote();if(ok==='find'){renderCats();renderRes()}if(ok==='data')renderCov()}}
 
 let qt;
 $('#q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{F.q=e.target.value.trim();shown=150;open=null;renderRes()},120)});
@@ -792,22 +786,6 @@ const PB=window.SJK_BACKEND;
 /* ---------- Users (admins add and manage sales / admin sign-ins, through parts-api) ---------- */
 let USERS=[];
 const UB=()=>window.SJK_BACKEND&&window.SJK_BACKEND.users;
-async function renderZohoCard(){
- const zb=window.SJK_BACKEND&&window.SJK_BACKEND.zoho,can=canEdit===true&&shared&&!!(zb&&zb.status);
- $('#zcard').hidden=!can;if(!can)return;
- try{const st=await zb.status();const sb=st.environment==='sandbox';
-  $('#zenv').textContent=(sb?'the Zoho Sandbox (test)':'your live Zoho CRM (production)')+(st.configured?'':' — not connected yet');
-  $('#zenv2').textContent=sb?'the Sandbox (sjkguahan)':'your production organisation'}
- catch(e){$('#zenv').textContent='Zoho (status unknown)'}
-}
-$('#zconnf').addEventListener('submit',async e=>{
- e.preventDefault();const f=e.target,btn=f.querySelector('button'),st=$('#zst');btn.disabled=true;st.textContent='Connecting…';
- try{const r=await window.SJK_BACKEND.zoho.connect(f.elements.code.value.trim());
-  st.textContent=`Connected to ${r.environment==='sandbox'?'the Zoho Sandbox':'Zoho CRM (production)'} ✓ — the new login is used straight away.`;f.reset();
-  zohoOn=false;initZoho()}
- catch(err){st.textContent='Not connected: '+(err.message||err)}
- finally{btn.disabled=false}
-});
 async function renderUsers(){
  const can=canEdit===true&&shared&&!!UB();
  $('#uadmin').hidden=!can;$('#unoadmin').hidden=can;if(!can)return;
