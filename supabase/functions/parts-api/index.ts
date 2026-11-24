@@ -10,6 +10,13 @@
 //   GET  /settings/locks     which sections are locked (version strings only, never hashes)
 //   PUT  /settings/locks     set / change / remove section passwords         admins only
 //   POST /unlock             { section, password } → { sections }             any signed-in person
+//   GET  /zoho/status        → { configured }                                  any signed-in person
+//   GET  /zoho/accounts?search=word → [{ id, name, address, phone }]          Zoho CRM Accounts
+//   GET  /zoho/accounts/:id/contacts → [{ id, name, title, email, phone }]    the account's Contacts
+//
+// Zoho CRM: set these as function secrets (supabase/README.md → "Connect Zoho CRM"):
+//   ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN  (a Zoho "Self Client")
+//   optional ZOHO_ACCOUNTS_URL (default https://accounts.zoho.com), ZOHO_API_DOMAIN (default https://www.zohoapis.com)
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor → name it parts-api →
 // paste this file → Deploy. Turn OFF "Verify JWT" in the function's settings: the function checks
@@ -58,6 +65,50 @@ const putSetting = async (name, value, by) => {
   await db("POST", "/shared_settings", { name, value, updated_at: new Date().toISOString() }, "resolution=merge-duplicates");
   await db("POST", "/settings_history", { name, value, changed_by: by });
 };
+
+// ---------- Zoho CRM (REST v8 with an OAuth refresh token kept in function secrets) ----------
+const ZOHO = {
+  id: Deno.env.get("ZOHO_CLIENT_ID") || "",
+  secret: Deno.env.get("ZOHO_CLIENT_SECRET") || "",
+  refresh: Deno.env.get("ZOHO_REFRESH_TOKEN") || "",
+  accounts: (Deno.env.get("ZOHO_ACCOUNTS_URL") || "https://accounts.zoho.com").replace(/\/$/, ""),
+  api: (Deno.env.get("ZOHO_API_DOMAIN") || "https://www.zohoapis.com").replace(/\/$/, ""),
+};
+const zohoConfigured = () => !!(ZOHO.id && ZOHO.secret && ZOHO.refresh);
+let zohoMem = { token: "", exp: 0 };
+async function zohoToken() {
+  if (zohoMem.token && Date.now() < zohoMem.exp) return zohoMem.token;
+  // Shared cache in the database: Zoho allows only a few new access tokens per 10 minutes.
+  const rows = await db("GET", `/zoho_cache?name=eq.access_token&select=value,expires_at`);
+  if (rows && rows[0] && new Date(rows[0].expires_at).getTime() > Date.now() + 60000) {
+    zohoMem = { token: rows[0].value, exp: new Date(rows[0].expires_at).getTime() - 60000 };
+    return zohoMem.token;
+  }
+  const q = new URLSearchParams({ refresh_token: ZOHO.refresh, client_id: ZOHO.id, client_secret: ZOHO.secret, grant_type: "refresh_token" });
+  const res = await fetch(`${ZOHO.accounts}/oauth/v2/token?${q}`, { method: "POST" });
+  const j = await res.json().catch(() => ({}));
+  if (!j.access_token) throw Object.assign(new Error("Zoho sign-in failed: " + (j.error || res.status)), { status: 502 });
+  const exp = Date.now() + (Number(j.expires_in) || 3600) * 1000;
+  await db("POST", "/zoho_cache", { name: "access_token", value: j.access_token, expires_at: new Date(exp).toISOString() }, "resolution=merge-duplicates");
+  zohoMem = { token: j.access_token, exp: exp - 60000 };
+  return zohoMem.token;
+}
+async function zoho(method, path) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(ZOHO.api + "/crm/v8" + path, { method, headers: { Authorization: "Zoho-oauthtoken " + (await zohoToken()) } });
+    if (res.status === 204) return { data: [] };                       // no matches
+    const j = await res.json().catch(() => ({}));
+    if (res.status === 401 && attempt === 0) {                         // token expired early: get a new one once
+      zohoMem = { token: "", exp: 0 };
+      await db("DELETE", `/zoho_cache?name=eq.access_token`);
+      continue;
+    }
+    if (!res.ok) throw Object.assign(new Error("Zoho: " + (j.message || j.code || res.status)), { status: 502 });
+    return j;
+  }
+  throw Object.assign(new Error("Zoho: not authorised"), { status: 502 });
+}
+const joinAddr = (...parts) => [...new Set(parts.map((p) => String(p || "").trim()).filter(Boolean))].join(", ");
 
 // The signed-in person (active profile) or null.
 async function currentUser(req) {
@@ -153,6 +204,28 @@ export async function handle(req) {
       }
       await db("DELETE", `/unlock_failures?at=lt.${new Date(Date.now() - 86400000).toISOString()}`);
       return reply(200, { sections: opened });
+    }
+
+    // ---------- Zoho CRM customers ----------
+    if (path === "/zoho/status" && req.method === "GET") return reply(200, { configured: zohoConfigured() });
+    if (path.startsWith("/zoho/") && !zohoConfigured()) return reply(503, { error: "Zoho CRM is not connected yet." });
+
+    if (path === "/zoho/accounts" && req.method === "GET") {
+      const word = (new URL(req.url).searchParams.get("search") || "").trim();
+      if (word.length < 2) return reply(200, []);
+      const j = await zoho("GET", `/Accounts/search?word=${encodeURIComponent(word.slice(0, 100))}` +
+        `&fields=Account_Name,Billing_Street,Billing_City,Billing_State,Phone&per_page=15`);
+      return reply(200, (j.data || []).map((a) => ({
+        id: a.id, name: a.Account_Name || "", address: joinAddr(a.Billing_Street, a.Billing_City, a.Billing_State), phone: a.Phone || "",
+      })));
+    }
+
+    const m = path.match(/^\/zoho\/accounts\/(\d{5,25})\/contacts$/);
+    if (m && req.method === "GET") {
+      const j = await zoho("GET", `/Accounts/${m[1]}/Contacts?fields=First_Name,Last_Name,Title,Email,Mobile,Phone&per_page=100`);
+      return reply(200, (j.data || []).map((c) => ({
+        id: c.id, name: [c.First_Name, c.Last_Name].filter(Boolean).join(" "), title: c.Title || "", email: c.Email || "", phone: c.Mobile || c.Phone || "",
+      })));
     }
 
     return reply(404, { error: "Not found" });

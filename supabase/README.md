@@ -62,6 +62,34 @@ signed in. "Requested function was not found" means step 2 isn't done.
 
 Every costing save and password change is kept in **`settings_history`** with who made it.
 
+## Connect Zoho CRM (customers on the Quote tab)
+Once connected, the Quote tab's **Customer** box searches Zoho CRM Accounts. Picking one fills in
+the address and phone and lists that account's Contacts. The Zoho login stays in Supabase as a
+secret. It never goes to the browser.
+
+1. **Create a Self Client:** go to https://api-console.zoho.com → **Add Client → Self Client → Create**.
+   Copy the **Client ID** and **Client Secret**.
+2. **Generate a code** (same page, tab **Generate Code**):
+   - Scope: `ZohoCRM.modules.ALL,ZohoCRM.settings.READ,ZohoCRM.users.READ`
+   - Time duration: 10 minutes · Description: SJK parts tool → **Create**. Copy the code; it expires in 10 minutes.
+3. **Turn the code into a refresh token and store everything as secrets.** In the VS Code terminal
+   (PowerShell), replace the three `PASTE_…` values, then run:
+   ```powershell
+   $id = "PASTE_CLIENT_ID"; $secret = "PASTE_CLIENT_SECRET"; $code = "PASTE_CODE"
+   $r = Invoke-RestMethod -Method Post "https://accounts.zoho.com/oauth/v2/token?grant_type=authorization_code&client_id=$id&client_secret=$secret&code=$code"
+   if ($r.refresh_token) { npx supabase secrets set --project-ref pitfqmvanfnaxsdajhzr ZOHO_CLIENT_ID=$id ZOHO_CLIENT_SECRET=$secret ZOHO_REFRESH_TOKEN=$($r.refresh_token) } else { $r }
+   ```
+   It should end with "Finished supabase secrets set". If it prints an `error` instead, generate a new code (step 2) and run it again.
+   Don't paste these values into chats or files. Supabase stores them encrypted.
+4. **Update the database and the function:**
+   - SQL Editor: run `parts-api.sql` again (adds the `zoho_cache` table).
+   - Terminal: `npx supabase functions deploy parts-api --project-ref pitfqmvanfnaxsdajhzr --no-verify-jwt` → **Yes**.
+5. Open the tool, press Ctrl+F5, go to **Quote**. The Customer box should say *"Search Zoho accounts (2+ letters)"*.
+
+Your Zoho CRM lives on the **.com** data centre (crm.zoho.com). If that ever changes, set the
+`ZOHO_ACCOUNTS_URL` / `ZOHO_API_DOMAIN` secrets to match (e.g. `https://accounts.zoho.com.au`).
+
 ## Not covered yet
+- **Creating or updating the Deal in Zoho CRM with the PDF attached** (README flow step 4). That's the next step after customer search.
 - `data/parts_data.json` (dealer costs) is still a public file on the website. Now that everyone signs
   in, the function can serve it to signed-in people only (`partsUrl` in `backend.js`). That's the next step.

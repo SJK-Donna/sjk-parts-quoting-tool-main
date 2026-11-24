@@ -58,6 +58,14 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--panel)}
 .big{font-size:clamp(26px,4vw,40px);font-weight:800;color:var(--mag);line-height:1}
 .qbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:14px}
 .qbar label{font-size:13px;color:var(--mut);display:grid;gap:4px}
+[hidden]{display:none!important}
+.cwrap{position:relative;display:grid}
+#qacc{position:absolute;left:0;top:100%;z-index:30;width:min(440px,92vw);margin-top:4px;background:var(--card);border:1.5px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(19,36,46,.16);max-height:330px;overflow:auto}
+#qacc button{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:9px 12px;cursor:pointer;font-size:15px;color:var(--ink)}
+#qacc button:hover,#qacc button:focus{background:var(--panel)}
+#qacc small{display:block;color:var(--mut);font-size:12px}
+#qacc .meta{padding:9px 12px;margin:0}
+.ztag{display:inline-block;font-size:11px;font-weight:700;background:#e3f2e6;color:#1d6a33;border-radius:4px;padding:0 6px;margin-left:4px}
 .qbar2{margin-top:-4px}.qbar2 label{flex:1 1 160px;max-width:220px}.qbar2 label.wide{flex:2 1 280px;max-width:420px}
 .qtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
 .qtot div{background:var(--panel);border-radius:10px;padding:12px 14px}.qtot b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.qtot small{color:var(--mut)}
@@ -141,12 +149,14 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
 
 <section class="view" id="v-quote">
  <div class="qbar">
-  <label>Customer<input type="text" id="qc" placeholder="e.g. Valley Golf"></label>
+  <div class="cwrap"><label><span>Customer <span class="ztag" id="zlink" hidden title="Linked to this account in Zoho CRM">Zoho ✓</span></span><input type="text" id="qc" placeholder="e.g. Valley Golf" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="qacc" aria-expanded="false"></label>
+   <div id="qacc" role="listbox" hidden></div></div>
   <label>Reference<input type="text" id="qr" placeholder="e.g. Cart #12 brake job"></label>
   <label>Margin %<input type="number" id="qm" step="1" style="width:100px"></label>
   <button class="add" id="cpc">Copy for customer</button><button class="add ghost" id="cpi">Copy with costing</button><button class="add ghost" id="cpp">Preview PDF</button><button class="add ghost" id="qclear">Clear quote</button>
  </div>
  <div class="qbar qbar2" id="qmore" aria-label="Customer details for the PDF proposal">
+  <label id="qctl" hidden>Zoho contact<select id="qcsel"></select></label>
   <label>Contact person<input type="text" data-q="ct" placeholder="e.g. Juan Dela Cruz" autocomplete="off"></label>
   <label>Position<input type="text" data-q="ctt" placeholder="e.g. Fleet Manager" autocomplete="off"></label>
   <label class="wide">Address<input type="text" data-q="ad" placeholder="e.g. Km 30 Sample Road, Silang, Cavite" autocomplete="off"></label>
@@ -482,11 +492,56 @@ $('#ql').addEventListener('change',e=>{const t=e.target;let l;
  if(t.dataset.kg){l=Q.lines.find(x=>x.pn===t.dataset.kg);if(l)l.kg=Math.max(0,+t.value||0)}
  saveQ();renderQuote()});
 $('#ql').addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){Q.lines=Q.lines.filter(x=>x.pn!==d.dataset.del);saveQ();renderQuote();renderRes()}});
-$('#qc').addEventListener('input',e=>{Q.c=e.target.value;saveQ()});
+/* ---------- Zoho CRM customer search (README flow step 1: "A sales rep picks a Zoho customer") ---------- */
+let zohoOn=false,zt=null,zseq=0;
+const ZB=()=>window.SJK_BACKEND&&window.SJK_BACKEND.zoho;
+async function initZoho(){
+ zohoOn=!!(ZB()&&await ZB().configured());
+ if(!zohoOn)return;
+ $('#qc').placeholder='Search Zoho accounts (2+ letters)';
+ showZohoLink();if(Q.acct)loadContacts(Q.acct,false);
+}
+const showZohoLink=()=>{$('#zlink').hidden=!Q.acct};
+const closeAcc=()=>{$('#qacc').hidden=true;$('#qc').setAttribute('aria-expanded','false')};
+function searchAccounts(word){
+ clearTimeout(zt);const box=$('#qacc');
+ if(!zohoOn||word.trim().length<2){closeAcc();return}
+ zt=setTimeout(async()=>{
+  const my=++zseq;box.hidden=false;$('#qc').setAttribute('aria-expanded','true');box.innerHTML='<p class="meta">Searching Zoho…</p>';
+  try{const list=await ZB().searchAccounts(word.trim());if(my!==zseq)return;
+   box._list=list;
+   box.innerHTML=list.length?list.map((a,i)=>`<button type="button" role="option" data-acc="${i}"><b>${esc(a.name)}</b><small>${esc([a.address,a.phone].filter(Boolean).join(' · ')||'No address in Zoho')}</small></button>`).join('')
+    :`<p class="meta">No Zoho account matches “${esc(word.trim())}”. You can keep the typed name.</p>`}
+  catch(e){if(my===zseq)box.innerHTML=`<p class="meta">Zoho search failed: ${esc(e.message||e)}</p>`}
+ },300);
+}
+async function pickAccount(a){
+ Q.c=a.name;Q.acct=a.id;if(a.address)Q.ad=a.address;if(a.phone&&!Q.ph)Q.ph=a.phone;
+ saveQ();closeAcc();renderQuote();showZohoLink();loadContacts(a.id,true);
+}
+async function loadContacts(id,autofill){
+ const lab=$('#qctl'),sel=$('#qcsel');lab.hidden=false;sel.innerHTML='<option>Loading contacts…</option>';sel.disabled=true;
+ try{const cs=await ZB().contacts(id);if(Q.acct!==id)return;
+  sel._list=cs;sel.disabled=!cs.length;
+  sel.innerHTML=cs.length?'<option value="">Choose a contact…</option>'+cs.map((c,i)=>`<option value="${i}">${esc(c.name)}${c.title?' — '+esc(c.title):''}</option>`).join(''):'<option>No contacts in Zoho</option>';
+  const cur=cs.findIndex(c=>c.name===Q.ct);if(cur>=0)sel.value=String(cur);
+  if(autofill&&cs.length===1){sel.value='0';fillContact(cs[0])}
+ }catch(e){sel.innerHTML='<option>Could not load contacts</option>'}
+}
+function fillContact(c){Q.ct=c.name;Q.ctt=c.title;if(c.email)Q.em=c.email;if(c.phone)Q.ph=c.phone;saveQ();renderQuote()}
+$('#qcsel').addEventListener('change',e=>{const c=(e.target._list||[])[+e.target.value];if(e.target.value!==''&&c)fillContact(c)});
+$('#qacc').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(b)pickAccount($('#qacc')._list[+b.dataset.acc])});
+$('#qacc').addEventListener('keydown',e=>{if(e.key==='Escape'){closeAcc();$('#qc').focus()}
+ if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const bs=[...$$('#qacc button')],i=bs.indexOf(document.activeElement);(bs[i+(e.key==='ArrowDown'?1:-1)]||(e.key==='ArrowUp'?$('#qc'):null))?.focus()}});
+$('#qc').addEventListener('keydown',e=>{if(e.key==='ArrowDown'&&!$('#qacc').hidden){e.preventDefault();$('#qacc button')?.focus()}if(e.key==='Escape')closeAcc()});
+document.addEventListener('click',e=>{if(!e.target.closest('.cwrap'))closeAcc()});
+$('#qc').addEventListener('input',e=>{Q.c=e.target.value;
+ if(Q.acct){Q.acct=null;showZohoLink();$('#qctl').hidden=true}   // typed over a Zoho customer: no longer linked
+ saveQ();searchAccounts(e.target.value)});
 $('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
 $('#qmore').addEventListener('input',e=>{const k=e.target.dataset.q;if(k){Q[k]=e.target.value;saveQ()}});
 $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.value;saveQ();renderQuote()});
-$('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML=''});
+$('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;closeAcc()});
 $('#cpc').addEventListener('click',()=>copyText(quoteTSV(false)));
 $('#cpi').addEventListener('click',()=>copyText(quoteTSV(true)));
 $('#cpp').addEventListener('click',previewPdf);
@@ -520,6 +575,7 @@ if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
  if(B&&canEdit===true&&!location.hash.slice(1))history.replaceState(null,'','#setup');   // admins land in the admin console
  if(!db){readOnly=canEdit===false;route();renderAll();return}   // signed-in sales stay read-only on costing
  readOnly=canEdit===false;shared=true;
+ initZoho();   // Zoho customer search, if Zoho CRM is connected to parts-api
  let timer=setTimeout(()=>{$('#savest').textContent='The server is slow to answer — showing the last saved costing.'},10000);
  db.doc('settings/locks').onSnapshot(s=>{
   if(s.exists){LOCKS={...s.data()}}else if(!s.metadata.fromCache){LOCKS={}}

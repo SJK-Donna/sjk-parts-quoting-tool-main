@@ -155,6 +155,15 @@
         .then(function (r) { return (r && r.sections) || []; }, function () { return []; });
     },
     signOut: function () { signedOut(); },
-    user: function () { return me; }      // { email, name, role } of the signed-in person (for "Prepared by")
+    user: function () { return me; },     // { email, name, role } of the signed-in person (for "Prepared by")
+    // Zoho CRM customers (through parts-api; the Zoho login never reaches the browser)
+    zoho: {
+      configured: function () {
+        if (!window.SJK_BACKEND.shared) return Promise.resolve(false);
+        return request('GET', '/zoho/status').then(function (r) { return !!(r && r.configured); }, function () { return false; });
+      },
+      searchAccounts: function (word) { return request('GET', '/zoho/accounts?search=' + encodeURIComponent(word)).then(function (r) { return r || []; }); },
+      contacts: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/contacts').then(function (r) { return r || []; }); }
+    }
   };
 })();

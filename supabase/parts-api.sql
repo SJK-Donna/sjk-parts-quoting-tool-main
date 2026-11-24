@@ -74,6 +74,16 @@ create table if not exists public.unlock_failures (
 );
 create index if not exists unlock_failures_ip_at on public.unlock_failures (ip, at);
 
+-- Zoho CRM access token cache (used only by the parts-api function; Zoho limits how often new tokens may be made).
+create table if not exists public.zoho_cache (
+  name        text primary key,
+  value       text not null,
+  expires_at  timestamptz not null
+);
+alter table public.zoho_cache enable row level security;
+revoke all on public.zoho_cache from anon, authenticated;
+grant all on public.zoho_cache to service_role;
+
 alter table public.profiles         enable row level security;
 alter table public.shared_settings  enable row level security;
 alter table public.settings_history enable row level security;
