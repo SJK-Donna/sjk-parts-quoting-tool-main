@@ -434,8 +434,8 @@ export async function handle(req) {
     // Deal setup: required-field picklists + the "Service Layout New" layout id (cached 6 h per environment).
     if (path === "/zoho/deal-setup" && req.method === "GET") return reply(200, await dealSetup());
 
-    // All of the account's deals (every pipeline), plus the contact person's deals when ?contact= is given
-    // (they can sit under another account). Defaults for a new deal come from the latest Spare Parts deal.
+    // The account's Spare Parts deals, plus the contact person's Spare Parts deals when ?contact= is given
+    // (they can sit under another account). Defaults for a new deal come from the latest one of the account.
     const ad = path.match(/^\/zoho\/accounts\/(\d{5,25})\/deals$/);
     if (ad && req.method === "GET") {
       const contact = (new URL(req.url).searchParams.get("contact") || "").replace(/\D/g, "").slice(0, 25);
@@ -445,9 +445,9 @@ export async function handle(req) {
         contact.length >= 5 ? zoho("GET", `/Contacts/${contact}/Deals?${q}`) : Promise.resolve({ data: [] }),
       ]);
       const seen = new Set(), all = [];
-      for (const d of [...(ja.data || []), ...(jc.data || [])]) if (!seen.has(d.id)) { seen.add(d.id); all.push(d); }
+      for (const d of [...(ja.data || []), ...(jc.data || [])]) if (d.Pipeline === "Spare Parts" && !seen.has(d.id)) { seen.add(d.id); all.push(d); }
       all.sort((a, b) => String(b.Modified_Time || "").localeCompare(String(a.Modified_Time || "")));
-      const last = all.find((d) => d.Pipeline === "Spare Parts" && d.Account_Name?.id === ad[1]) || null;
+      const last = all.find((d) => d.Account_Name?.id === ad[1]) || null;
       return reply(200, {
         deals: all.map((d) => ({ ...dealOut(d), accountId: d.Account_Name?.id || ad[1], accountName: d.Account_Name?.name || "",
           viaContact: !!(d.Account_Name?.id && d.Account_Name.id !== ad[1]) })),

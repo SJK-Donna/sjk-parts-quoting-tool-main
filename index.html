@@ -637,7 +637,7 @@ async function loadContacts(id,autofill){
 }
 function fillContact(c){const was=Q.ctid||'';Q.ctid=c.id||'';Q.ct=c.name;Q.ctt=c.title;if(c.email)Q.em=c.email;if(c.phone)Q.ph=c.phone;saveQ();renderQuote();
  if(Q.acct&&Q.ctid!==was)loadDeals()}   // the contact person's deals join the list
-/* ---------- Zoho deal (SPEC §9): attach the proposal to any of the customer's (or contact's) deals, or create a Spare Parts deal.
+/* ---------- Zoho deal (SPEC §9): attach the proposal to a Spare Parts deal of the customer (or contact), or create one.
    Existing deals: only the PDF is added (Amount, Closing Date, Stage and the rest are left alone). ---------- */
 let DS=null,AD=null;   // deal setup (picklists, layout) and the picked account's deals
 const qid=()=>{if(!Q.qid){Q.qid='Q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);saveQ()}return Q.qid};
@@ -661,11 +661,9 @@ async function loadDeals(){
 function renderDeal(){
  const sel=$('#qdsel');sel.disabled=false;const deals=(AD&&AD.deals)||[];
  const extra=Q.deal&&Q.deal.id&&!deals.some(d=>d.id===Q.deal.id)?[Q.deal]:[];
- // every deal of the customer (and of the contact person), grouped by pipeline, Spare Parts first
- const groups={};[...extra,...deals].forEach(d=>{const p=d.pipeline||'No pipeline';(groups[p]=groups[p]||[]).push(d)});
- const order=Object.keys(groups).sort((a,b)=>(b==='Spare Parts')-(a==='Spare Parts')||a.localeCompare(b));
+ // the customer's (and the contact person's) Spare Parts deals
  const opt=d=>`<option value="${esc(d.id)}">${esc(d.no)} · ${esc(d.name)} · ${esc(d.stage)}${d.viaContact?` · via ${esc(Q.ct||'contact')} (${esc(d.accountName)})`:''}</option>`;
- sel.innerHTML=`<option value="">${deals.length?`Choose a deal… (${deals.length} in Zoho)`:'No deals in Zoho yet'}</option>`+order.map(p=>`<optgroup label="${esc(p)}">${groups[p].map(opt).join('')}</optgroup>`).join('')+'<option value="new">+ Create a new deal</option>';
+ sel.innerHTML=`<option value="">${deals.length?`Choose a Spare Parts deal… (${deals.length} in Zoho)`:'No Spare Parts deals in Zoho yet'}</option>`+[...extra,...deals].map(opt).join('')+'<option value="new">+ Create a new deal</option>';
  sel.value=Q.deal?(Q.deal.id||'new'):'';
  const st=$('#qdst'),n=Q.deal&&(Q.deal.proposals||[]).length;
  if(Q.deal&&Q.deal.id)st.innerHTML=`The proposal will be attached to <b>${esc(Q.deal.no)}</b> as <b>${esc(proposalNo())}</b>${n?` (it already has ${n} PDF${n>1?'s':''})`:''}. Only the PDF is added — nothing else on the deal changes.`;
@@ -742,6 +740,7 @@ $('#qdnew').addEventListener('input',e=>{const t=e.target;if(Q.nd&&t.dataset.nd&
 $('#qdfind').addEventListener('click',async()=>{
  const no=$('#qdno').value.trim();if(!no)return;$('#qdst').textContent='Looking for '+no+'…';
  try{const d=await ZB().dealByNo(no);
+  if(d.pipeline!=='Spare Parts'){$('#qdst').textContent=`${d.no} is in the “${d.pipeline}” pipeline, not Spare Parts. Choose another deal.`;return}
   if(Q.acct&&d.accountId&&d.accountId!==Q.acct){$('#qdst').innerHTML=`<b>${esc(d.no)}</b> belongs to <b>${esc(d.accountName)}</b>, not ${esc(Q.c)}. Pick that customer first, or choose another deal.`;return}
   Q.deal={mode:'existing',...d};saveQ();renderDeal()}
  catch(e){$('#qdst').textContent=e.message||String(e)}});
