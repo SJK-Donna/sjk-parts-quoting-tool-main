@@ -78,7 +78,15 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--panel)}
 .utag.adm{background:#f1e2cf;color:#7a3d0f}.utag.sal{background:#d8eef5;color:#13242e}.utag.off{background:#ececec;color:#555}.utag.me{background:#e3f2e6;color:#1d6a33}
 @media(max-width:700px){.urow{grid-template-columns:1fr 1fr}.ubtns{grid-column:1/-1}}
 .ztag{display:inline-block;font-size:11px;font-weight:700;background:#e3f2e6;color:#1d6a33;border-radius:4px;padding:0 6px;margin-left:4px}
-.qbar2{margin-top:-4px}.qbar2 label{flex:1 1 160px;max-width:220px}.qbar2 label.wide{flex:2 1 280px;max-width:420px}
+.qbar2{margin-top:-4px}
+.qdeal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:4px 0 12px}
+.qdeal .qbar{margin-bottom:2px}.qdeal label.wide{flex:2 1 340px}.qdeal select{min-width:0}
+.dno{display:flex;gap:6px}.dno input{width:150px}.dno .add{min-height:44px}
+.ndgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 12px;margin-top:6px}
+.ndgrid>label{font-size:13px;color:var(--mut);display:grid;gap:4px}
+.chks{display:flex;flex-wrap:wrap;gap:4px 12px;min-height:44px;align-items:center}
+.chks label{display:flex;gap:6px;align-items:center;color:var(--ink);font-size:14px}
+.ndauto{font-size:13px;color:var(--mut);margin:8px 0 0}.qbar2 label{flex:1 1 160px;max-width:220px}.qbar2 label.wide{flex:2 1 280px;max-width:420px}
 .qtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
 .qtot div{background:var(--panel);border-radius:10px;padding:12px 14px}.qtot b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.qtot small{color:var(--mut)}
 td input[type=number]{width:84px;min-height:38px;text-align:right}
@@ -176,6 +184,12 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
   <label>Phone<input type="text" inputmode="tel" data-q="ph" placeholder="e.g. 0917 000 0000" autocomplete="off"></label>
   <label>Cart model<select id="qmod" data-q="mod"><option value="">Various</option></select></label>
  </div>
+ <div class="qdeal" id="qdeal" hidden aria-label="Zoho deal for this proposal">
+  <div class="qbar"><label class="wide">Zoho deal<select id="qdsel"></select></label>
+   <label>or find by Deal No.<span class="dno"><input type="text" id="qdno" placeholder="e.g. GC-07680" autocomplete="off"><button class="add ghost" id="qdfind" type="button">Find</button></span></label></div>
+  <p class="meta" id="qdst" role="status"></p>
+  <div id="qdnew" hidden></div>
+ </div>
  <div id="qwarn"></div>
  <table class="rt"><thead><tr><th>Part no.</th><th>Description</th><th class="num">Qty</th><th class="num" id="kgh">Kg / unit</th><th class="num hm">Landed / unit</th><th class="num">Price / unit</th><th class="num">Line total</th><th></th></tr></thead><tbody id="ql"></tbody></table>
  <div class="qtot" id="qt"></div>
@@ -183,7 +197,7 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
 </section>
 <div id="pdfm" hidden role="dialog" aria-modal="true" aria-labelledby="pdft">
  <div class="pdfbar"><b id="pdft">Proposal preview</b><span class="meta" id="pdfst"></span>
-  <button class="add" id="pdfdl">Download PDF</button><button class="add ghost" id="pdfx">Close</button></div>
+  <button class="add" id="pdfzoho" hidden>Attach to Zoho deal</button><button class="add" id="pdfdl">Download PDF</button><button class="add ghost" id="pdfx">Close</button></div>
  <iframe id="pdff" title="Proposal preview"></iframe>
 </div>
 
@@ -335,6 +349,7 @@ function saveQ(){ls.set('sjk_quote',Q);$('#qn').textContent=Q.lines.length}
 function qrows(){return Q.lines.map(l=>{const r=D.rows[BYPN[l.pn]];return {l,r,b:calc(r,l.kg??undefined,qm())}}).filter(x=>x.r&&x.b)}
 function renderQuote(){
  if(!D)return;
+ if($('#ndunit'))$('#ndunit').textContent=unitOffered();
  $('#qc').value=Q.c;$('#qr').value=Q.r;$('#qm').value=qm();
  if($('#qmod').options.length<2)$('#qmod').innerHTML='<option value="">Various</option>'+D.models.map(m=>`<option>${esc(m[0])}</option>`).join('');
  $$('[data-q]').forEach(el=>el.value=Q[el.dataset.q]??'');
@@ -428,7 +443,7 @@ function buildProposal(){
  // Same shape as the full tool's Zoho account/contact, so "Prepared for" prints like the sample proposal.
  const contact=(g('ct')||g('ctt')||g('em')||g('ph'))?{First_Name:'',Last_Name:g('ct'),Title:g('ctt'),Email:g('em'),Mobile:g('ph')}:null;
  const q={customer:{account:{Account_Name:Q.c.trim(),Billing_Street:g('ad'),Phone:g('ph')},contact},reference:Q.r.trim(),model:g('mod')||null,deal:null,zoho:{}};
- const ver={no:'SP-DRAFT-'+iso(today).replace(/-/g,''),date:iso(today),validUntil:iso(until),lines,totals:{sub,vat,total:r2(sub+vat)},mode,approval:null};
+ const ver={no:proposalNo()||'SP-DRAFT-'+iso(today).replace(/-/g,''),date:iso(today),validUntil:iso(until),lines,totals:{sub,vat,total:r2(sub+vat)},mode,approval:null};
  const rep=u?{name:u.name||u.email,email:u.email,title:u.title||'',mobile:u.mobile||''}:null;
  return {q,ver,html:Proposal.render(q,ver,PROPOSAL,rep),name:Proposal.fileName(q,ver),footer:Proposal.footer(PROPOSAL,ver)};
 }
@@ -440,6 +455,7 @@ function previewPdf(kind){
  $('#pdft').textContent=p.title||p.ver.no;
  $('#pdfst').textContent=kind==='costing'?'Internal — shows landed cost and profit. Do not send to the customer.':qm()<S.floor?`Margin ${qm()}% is below the ${S.floor}% floor — get approval before sending.`:'';
  $('#pdff').srcdoc=p.html;$('#pdfm').hidden=false;$('#pdfdl').disabled=pdfLocked();$('#pdfdl').textContent=pdfLocked()?'Download needs admin approval':'Download PDF';$('#pdfdl').focus();
+ zohoBtn();
  if(window.ProposalPdf)window.ProposalPdf.loadLibs().catch(()=>{});
 }
 async function downloadPdf(){
@@ -577,7 +593,7 @@ async function initZoho(){
  zohoOn=!!(ZB()&&await ZB().configured());
  if(!zohoOn)return;
  $('#qc').placeholder='Search Zoho accounts (2+ letters)';
- showZohoLink();if(Q.acct)loadContacts(Q.acct,false);
+ showZohoLink();if(Q.acct){loadContacts(Q.acct,false);loadDeals()}
 }
 const showZohoLink=()=>{$('#zlink').hidden=!Q.acct};
 const closeAcc=()=>{$('#qacc').hidden=true;$('#qc').setAttribute('aria-expanded','false')};
@@ -594,8 +610,8 @@ function searchAccounts(word){
  },300);
 }
 async function pickAccount(a){
- Q.c=a.name;Q.acct=a.id;if(a.address)Q.ad=a.address;if(a.phone&&!Q.ph)Q.ph=a.phone;
- saveQ();closeAcc();renderQuote();showZohoLink();loadContacts(a.id,true);
+ Q.c=a.name;Q.acct=a.id;Q.deal=null;Q.nd=null;Q.ctid='';if(a.address)Q.ad=a.address;if(a.phone&&!Q.ph)Q.ph=a.phone;
+ saveQ();closeAcc();renderQuote();showZohoLink();loadContacts(a.id,true);loadDeals();
 }
 async function loadContacts(id,autofill){
  const lab=$('#qctl'),sel=$('#qcsel');lab.hidden=false;sel.innerHTML='<option>Loading contacts…</option>';sel.disabled=true;
@@ -606,7 +622,111 @@ async function loadContacts(id,autofill){
   if(autofill&&cs.length===1){sel.value='0';fillContact(cs[0])}
  }catch(e){sel.innerHTML='<option>Could not load contacts</option>'}
 }
-function fillContact(c){Q.ct=c.name;Q.ctt=c.title;if(c.email)Q.em=c.email;if(c.phone)Q.ph=c.phone;saveQ();renderQuote()}
+function fillContact(c){Q.ctid=c.id||'';Q.ct=c.name;Q.ctt=c.title;if(c.email)Q.em=c.email;if(c.phone)Q.ph=c.phone;saveQ();renderQuote()}
+/* ---------- Zoho deal (SPEC §9): attach the proposal to an existing Spare Parts deal, or create one.
+   Existing deals: only the PDF is added (Amount, Closing Date, Stage and the rest are left alone). ---------- */
+let DS=null,AD=null;   // deal setup (picklists, layout) and the picked account's deals
+const qid=()=>{if(!Q.qid){Q.qid='Q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);saveQ()}return Q.qid};
+function unitOffered(){
+ const by={};qrows().forEach(({l,r,b})=>{const c=D.cats[r[5]];by[c]=(by[c]||0)+b.sell*l.qty});
+ const top=Object.keys(by).sort((a,b)=>by[b]-by[a])[0];
+ return top==='Batteries & Charging'?'Battery':top==='Wheels & Tires'?'Tires':'GCPH Wear & Tear';
+}
+function nextVersion(){
+ const re=new RegExp('^SP-'+String(Q.deal.no).replace(/[.*+?^${}()|[\]\\-]/g,'\\$&')+'-v(\\d+)','i');
+ return Math.max(0,...(Q.deal.proposals||[]).map(n=>{const m=String(n).match(re);return m?+m[1]:0}))+1;
+}
+const proposalNo=()=>Q.deal&&Q.deal.id&&Q.deal.no?`SP-${Q.deal.no}-v${nextVersion()}`:null;
+async function loadDeals(){
+ const box=$('#qdeal');if(!zohoOn||!Q.acct){box.hidden=true;return}
+ box.hidden=false;const sel=$('#qdsel'),acct=Q.acct;sel.innerHTML='<option>Loading deals…</option>';sel.disabled=true;$('#qdst').textContent='';
+ try{if(!DS)DS=await ZB().dealSetup();const r=await ZB().accountDeals(acct);if(Q.acct!==acct)return;AD=r}
+ catch(e){$('#qdst').textContent='Could not load Zoho deals: '+(e.message||e);sel.innerHTML='<option value="">—</option>';sel.disabled=false;return}
+ renderDeal();
+}
+function renderDeal(){
+ const sel=$('#qdsel');sel.disabled=false;const deals=(AD&&AD.deals)||[];
+ const extra=Q.deal&&Q.deal.id&&!deals.some(d=>d.id===Q.deal.id)?[Q.deal]:[];
+ sel.innerHTML='<option value="">Choose a deal…</option>'+[...extra,...deals].map(d=>`<option value="${esc(d.id)}">${esc(d.no)} · ${esc(d.name)} · ${esc(d.stage)}</option>`).join('')+'<option value="new">+ Create a new deal</option>';
+ sel.value=Q.deal?(Q.deal.id||'new'):'';
+ const st=$('#qdst'),n=Q.deal&&(Q.deal.proposals||[]).length;
+ if(Q.deal&&Q.deal.id)st.innerHTML=`The proposal will be attached to <b>${esc(Q.deal.no)}</b> as <b>${esc(proposalNo())}</b>${n?` (it already has ${n} PDF${n>1?'s':''})`:''}. Only the PDF is added — nothing else on the deal changes.`;
+ else if(Q.deal)st.textContent='A new Spare Parts deal is created when you attach the proposal. Check the details below.';
+ else st.textContent=deals.length?`${deals.length} Spare Parts deal${deals.length>1?'s':''} for this customer. Choose one, or create a new deal.`:'No Spare Parts deals for this customer yet. Choose “Create a new deal”.';
+ renderNewDeal();
+}
+function newDealDefaults(){
+ const d=(AD&&AD.defaults)||{},pl=(DS&&DS.picklists)||{},pick=(k,v)=>(pl[k]||[]).includes(v)?v:'';
+ const parts=(Q.ad||'').split(',').map(x=>x.trim()).filter(Boolean);
+ return {Type:pick('Type',AD&&AD.hasClosedWon?'Existing Business':'New Business'),Business_Type:d.Business_Type||'',Industry_B2B:d.Industry_B2B||'',Industry_B2C:d.Industry_B2C||'',
+  SJK_Office_Location:Array.isArray(d.SJK_Office_Location)?d.SJK_Office_Location:[],GO_Chance:pick('GO_Chance','50%')||d.GO_Chance||'',GET_Chance:pick('GET_Chance','50%')||d.GET_Chance||'',
+  Lead_Source:d.Lead_Source||(AD&&AD.hasClosedWon?pick('Lead_Source','Repeat Client'):''),Street:d.Street||parts[0]||'',City:d.City||parts.slice(1).join(', ')};
+}
+function renderNewDeal(){
+ const box=$('#qdnew');if(!(Q.deal&&!Q.deal.id)){box.hidden=true;return}
+ box.hidden=false;if(!Q.nd){Q.nd=newDealDefaults();saveQ()}const nd=Q.nd,pl=(DS&&DS.picklists)||{};
+ const sel=(k,label)=>`<label>${label}<select data-nd="${k}"><option value="">Choose…</option>${(pl[k]||[]).map(o=>`<option ${nd[k]===o?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
+ const ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B';
+ box.innerHTML=`<div class="ndgrid">${sel('Type','Type of client')}${sel('Business_Type','Business type')}${sel(ind,'Industry')}
+  <label>SJK office<span class="chks">${(pl.SJK_Office_Location||[]).map(o=>`<label><input type="checkbox" data-ndo="${esc(o)}" ${(nd.SJK_Office_Location||[]).includes(o)?'checked':''}>${esc(o)}</label>`).join('')}</span></label>
+  ${sel('GO_Chance','GO chance')}${sel('GET_Chance','GET chance')}${sel('Lead_Source','Lead source')}
+  <label>Street<input type="text" data-nd="Street" value="${esc(nd.Street||'')}"></label><label>City<input type="text" data-nd="City" value="${esc(nd.City||'')}"></label></div>
+  <p class="ndauto">Set automatically: Pipeline <b>Spare Parts</b> · Stage <b>Proposal/Price Quote</b> · Unit offered <b id="ndunit">${esc(unitOffered())}</b> · Amount = total incl. VAT · Closing date = valid-until · Deal owner = you.</p>`;
+}
+function newDealPayload(p){
+ const nd=Q.nd||{},ind=nd.Business_Type==='Business-to-Consumer'?'Industry_B2C':'Industry_B2B';
+ const fields={Deal_Name:`Spare Parts Proposal – ${Q.c.trim()} – ${Q.r.trim()||p.ver.date}`.slice(0,120),Type:nd.Type,Business_Type:nd.Business_Type,[ind]:nd[ind],
+  SJK_Office_Location:nd.SJK_Office_Location||[],Pick_List_6:unitOffered(),Amount:p.ver.totals.total,GO_Chance:nd.GO_Chance,GET_Chance:nd.GET_Chance,
+  Street:(nd.Street||'').trim(),City:(nd.City||'').trim(),Closing_Date:p.ver.validUntil,Lead_Source:nd.Lead_Source||'',
+  Description:`Proposal for ${Q.c.trim()}, ${p.ver.lines.length} line${p.ver.lines.length>1?'s':''}, ${mode==='air'?'Air':'Sea'} freight. Created by SJK Parts Quoting Tool.`};
+ const need={Type:'Type of client',Business_Type:'Business type',[ind]:'Industry',GO_Chance:'GO chance',GET_Chance:'GET chance',Street:'Street',City:'City'};
+ const missing=Object.keys(need).filter(k=>!fields[k]).map(k=>need[k]);if(!fields.SJK_Office_Location.length)missing.push('SJK office');
+ return {fields,missing};
+}
+function zohoBtn(){
+ const b=$('#pdfzoho'),show=!!(pdfDoc&&pdfDoc.kind!=='costing'&&zohoOn&&Q.acct&&Q.deal);
+ b.hidden=!show;if(!show)return;b.disabled=pdfLocked();
+ b.textContent=pdfLocked()?'Zoho needs admin approval':Q.deal.id?`Attach to Zoho deal ${Q.deal.no}`:'Create Zoho deal & attach';
+}
+async function sendToZoho(){
+ const b=$('#pdfzoho'),st=$('#pdfst');if(pdfLocked()||!Q.deal)return;b.disabled=true;
+ try{
+  if(!Q.deal.id){
+   const p0=buildProposal();if(p0.err)throw new Error(p0.err);
+   const {fields,missing}=newDealPayload(p0);if(missing.length)throw new Error('Fill in the new deal details on the Quote tab first: '+missing.join(', ')+'.');
+   b.textContent='Creating Zoho deal…';
+   const c=await ZB().createDeal({quoteId:qid(),accountId:Q.acct,contactId:Q.ctid||'',fields});
+   if(!c||!c.id||!c.no)throw new Error('Zoho did not confirm the new deal.');
+   Q.deal={mode:'existing',...c};saveQ();renderDeal();   // saved at once: a retry never creates a second deal
+  }
+  const p=buildProposal();if(p.err)throw new Error(p.err);  // numbered SP-<Deal No>-vN now
+  pdfDoc={...p,kind:'customer'};$('#pdft').textContent=p.ver.no;$('#pdff').srcdoc=p.html;
+  b.textContent='Making PDF…';const blob=await window.ProposalPdf.make(p.html,p.footer);
+  b.textContent='Attaching to Zoho…';const r=await ZB().attachProposal(Q.deal.id,p.name,blob);
+  if(!r||!r.fileId)throw new Error('Zoho did not confirm the upload.');
+  Q.deal.proposals=r&&r.proposals&&r.proposals.length?r.proposals:[...(Q.deal.proposals||[]),p.name];saveQ();renderDeal();
+  st.textContent=`${p.ver.no} attached to Zoho deal ${Q.deal.no} ✓`;b.textContent='Attached ✓';
+ }catch(e){st.textContent=(e.message||String(e))+' — the quote is kept here; press Try again.';b.disabled=false;b.textContent='Try again'}
+}
+$('#pdfzoho').addEventListener('click',sendToZoho);
+$('#qdsel').addEventListener('change',e=>{const v=e.target.value,deals=(AD&&AD.deals)||[];
+ if(v==='new'){Q.deal={mode:'new'};Q.nd=null}
+ else if(!v)Q.deal=null;
+ else{const d=deals.find(x=>x.id===v)||(Q.deal&&Q.deal.id===v?Q.deal:null);Q.deal=d?{mode:'existing',...d}:null}
+ saveQ();renderDeal()});
+$('#qdnew').addEventListener('change',e=>{const t=e.target;if(!Q.nd)return;
+ if(t.dataset.nd){Q.nd[t.dataset.nd]=t.value;if(t.dataset.nd==='Business_Type'){saveQ();renderNewDeal();return}}
+ if(t.dataset.ndo){const s=new Set(Q.nd.SJK_Office_Location||[]);t.checked?s.add(t.dataset.ndo):s.delete(t.dataset.ndo);Q.nd.SJK_Office_Location=[...s]}
+ saveQ()});
+$('#qdnew').addEventListener('input',e=>{const t=e.target;if(Q.nd&&t.dataset.nd&&t.tagName==='INPUT'){Q.nd[t.dataset.nd]=t.value;saveQ()}});
+$('#qdfind').addEventListener('click',async()=>{
+ const no=$('#qdno').value.trim();if(!no)return;$('#qdst').textContent='Looking for '+no+'…';
+ try{const d=await ZB().dealByNo(no);
+  if(d.pipeline!=='Spare Parts'){$('#qdst').textContent=`${d.no} is in the “${d.pipeline}” pipeline, not Spare Parts. Choose another deal.`;return}
+  if(Q.acct&&d.accountId&&d.accountId!==Q.acct){$('#qdst').innerHTML=`<b>${esc(d.no)}</b> belongs to <b>${esc(d.accountName)}</b>, not ${esc(Q.c)}. Pick that customer first, or choose another deal.`;return}
+  Q.deal={mode:'existing',...d};saveQ();renderDeal()}
+ catch(e){$('#qdst').textContent=e.message||String(e)}});
+$('#qdno').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#qdfind').click()}});
 $('#qcsel').addEventListener('change',e=>{const c=(e.target._list||[])[+e.target.value];if(e.target.value!==''&&c)fillContact(c)});
 $('#qacc').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(b)pickAccount($('#qacc')._list[+b.dataset.acc])});
 $('#qacc').addEventListener('keydown',e=>{if(e.key==='Escape'){closeAcc();$('#qc').focus()}
@@ -614,12 +734,12 @@ $('#qacc').addEventListener('keydown',e=>{if(e.key==='Escape'){closeAcc();$('#qc
 $('#qc').addEventListener('keydown',e=>{if(e.key==='ArrowDown'&&!$('#qacc').hidden){e.preventDefault();$('#qacc button')?.focus()}if(e.key==='Escape')closeAcc()});
 document.addEventListener('click',e=>{if(!e.target.closest('.cwrap'))closeAcc()});
 $('#qc').addEventListener('input',e=>{Q.c=e.target.value;$('#cpbox').innerHTML='';
- if(Q.acct){Q.acct=null;showZohoLink();$('#qctl').hidden=true}   // typed over a Zoho customer: no longer linked
+ if(Q.acct){Q.acct=null;Q.deal=null;Q.nd=null;showZohoLink();$('#qctl').hidden=true;$('#qdeal').hidden=true}   // typed over a Zoho customer: no longer linked
  saveQ();searchAccounts(e.target.value)});
 $('#qr').addEventListener('input',e=>{Q.r=e.target.value;saveQ()});
 $('#qmore').addEventListener('input',e=>{const k=e.target.dataset.q;if(k){Q[k]=e.target.value;saveQ()}});
 $('#qm').addEventListener('change',e=>{Q.m=e.target.value===''?null:+e.target.value;saveQ();renderQuote()});
-$('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;closeAcc()});
+$('#qclear').addEventListener('click',()=>{Q={lines:[],c:'',r:'',m:null};saveQ();renderQuote();renderRes();$('#cpbox').innerHTML='';showZohoLink();$('#qctl').hidden=true;$('#qdeal').hidden=true;closeAcc()});
 /* Golden rule 2: a signed-in sales rep can't send a below-minimum quote to the customer; an admin (the approver) can. */
 const needsApproval=()=>canEdit===false&&qm()<S.floor;
 $('#cpc').addEventListener('click',()=>previewPdf('customer'));

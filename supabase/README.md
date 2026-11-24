@@ -81,7 +81,7 @@ secret. It never goes to the browser.
 1. **Create a Self Client:** go to https://api-console.zoho.com → **Add Client → Self Client → Create**.
    Copy the **Client ID** and **Client Secret**.
 2. **Generate a code** (same page, tab **Generate Code**):
-   - Scope: `ZohoCRM.modules.ALL,ZohoCRM.settings.READ,ZohoCRM.users.READ`
+   - Scope: `ZohoCRM.modules.ALL,ZohoCRM.settings.READ,ZohoCRM.users.READ,ZohoCRM.Files.CREATE,ZohoCRM.coql.READ`
    - Time duration: 10 minutes · Description: SJK parts tool → **Create**. Copy the code; it expires in 10 minutes.
 3. **Turn the code into a refresh token and store everything as secrets.** In the VS Code terminal
    (PowerShell), replace the three `PASTE_…` values, then run:

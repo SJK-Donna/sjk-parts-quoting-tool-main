@@ -18,6 +18,11 @@
 //   PUT  /parts              upload a new price list                          admins only
 //   GET  /zoho/status        → { configured }                                  any signed-in person
 //   GET  /zoho/accounts?search=word → [{ id, name, address, phone }]          Zoho CRM Accounts
+//   GET  /zoho/deal-setup    picklists + layout id for a new deal            any signed-in person
+//   GET  /zoho/accounts/:id/deals  the account's Spare Parts deals + defaults for a new one
+//   GET  /zoho/deals/by-no?no=GC-07680  find a deal by Deal No.
+//   POST /zoho/deals         create a deal (§9.3)                             any signed-in person
+//   POST /zoho/deals/:id/proposal  attach a proposal PDF to Proposal Upload
 //   GET  /zoho/accounts/:id/contacts → [{ id, name, title, email, phone }]    the account's Contacts
 //
 // Zoho CRM: set these as function secrets (supabase/README.md → "Connect Zoho CRM"):
@@ -84,7 +89,8 @@ const ZOHO = {
 };
 ZOHO.sandbox = /sandbox/i.test(ZOHO.api);
 ZOHO.refresh = (ZOHO.sandbox ? Deno.env.get("ZOHO_SANDBOX_REFRESH_TOKEN") : "") || Deno.env.get("ZOHO_REFRESH_TOKEN") || "";
-const ZOHO_CACHE = ZOHO.sandbox ? "access_token_sandbox" : "access_token";   // never reuse a production token for the sandbox (or back)
+// Cache key per environment AND per login, so a new refresh token (e.g. with more scopes) takes effect at once.
+const ZOHO_CACHE = (ZOHO.sandbox ? "access_token_sandbox_" : "access_token_") + [...ZOHO.refresh].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
 const zohoConfigured = () => !!(ZOHO.id && ZOHO.secret && ZOHO.refresh);
 let zohoMem = { token: "", exp: 0 };
 async function zohoToken() {
@@ -104,9 +110,15 @@ async function zohoToken() {
   zohoMem = { token: j.access_token, exp: exp - 60000 };
   return zohoMem.token;
 }
-async function zoho(method, path) {
+const zohoErr = (r) => !r ? "no answer" : [r.code, r.details && (r.details.api_name || (r.details.expected_data_type && "expected " + r.details.expected_data_type)), r.message].filter(Boolean).join(": ");
+// One Zoho request with token refresh. body: object (sent as JSON) or FormData (multipart, for files).
+async function zohoRaw(method, path, body?) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(ZOHO.api + "/crm/v8" + path, { method, headers: { Authorization: "Zoho-oauthtoken " + (await zohoToken()) } });
+    const headers = { Authorization: "Zoho-oauthtoken " + (await zohoToken()) };
+    let payload = undefined;
+    if (body instanceof FormData) payload = body;
+    else if (body !== undefined) { headers["Content-Type"] = "application/json"; payload = JSON.stringify(body); }
+    const res = await fetch(ZOHO.api + "/crm/v8" + path, { method, headers, body: payload });
     if (res.status === 204) return { data: [] };                       // no matches
     const j = await res.json().catch(() => ({}));
     if (res.status === 401 && attempt === 0) {                         // token expired early: get a new one once
@@ -115,13 +127,66 @@ async function zoho(method, path) {
       continue;
     }
     if (!res.ok) {
-      const msg = String(j.message || j.code || res.status);
+      const msg = j.data && j.data[0] ? zohoErr(j.data[0]) : String(j.message || j.code || res.status);
       if (/environment/i.test(msg)) throw Object.assign(new Error("Zoho: the Zoho login is for " + (ZOHO.sandbox ? "production, but the tool is set to the sandbox. Set ZOHO_SANDBOX_REFRESH_TOKEN (supabase/README.md)." : "the sandbox, but the tool is set to production.")), { status: 502 });
-      throw Object.assign(new Error("Zoho: " + msg), { status: 502 });
+      if (/scope/i.test(msg)) throw Object.assign(new Error("Zoho: the Zoho login is missing a permission (" + msg + "). Generate a new code with the scope in supabase/README.md."), { status: 502 });
+      throw Object.assign(new Error("Zoho: " + msg), { status: res.status >= 500 ? 502 : 400 });
     }
     return j;
   }
   throw Object.assign(new Error("Zoho: not authorised"), { status: 502 });
+}
+const zoho = (method, path, body?) => zohoRaw(method, path, body);
+
+// ---------- deals (SPEC §9.3) ----------
+const DEAL_FIELDS = "Deal_Name,Deal_No,Stage,Pipeline,Amount,Closing_Date,Type,Business_Type,Industry_B2B,Industry_B2C,SJK_Office_Location,Pick_List_6,GO_Chance,GET_Chance,Street,City,Lead_Source,Proposal_Upload,Modified_Time";
+const DEFAULT_FIELDS = ["Type", "Business_Type", "Industry_B2B", "Industry_B2C", "SJK_Office_Location", "Pick_List_6", "GO_Chance", "GET_Chance", "Street", "City", "Lead_Source"];
+const REQUIRED = ["Deal_Name", "Type", "Business_Type", "SJK_Office_Location", "Pick_List_6", "Amount", "GO_Chance", "GET_Chance", "Street", "City", "Closing_Date"];
+const PICKLIST_FIELDS = ["Type", "Business_Type", "Industry_B2B", "Industry_B2C", "SJK_Office_Location", "Pick_List_6", "GO_Chance", "GET_Chance", "Lead_Source"];
+const fileName = (f) => (f && (f.File_Name__s || f.file_Name || f.name || f.File_Name)) || "";
+const dealOut = (d) => ({
+  id: d.id, no: d.Deal_No || "", name: d.Deal_Name || "", stage: d.Stage || "", pipeline: d.Pipeline || "",
+  amount: d.Amount ?? null, closingDate: d.Closing_Date || "", proposals: (Array.isArray(d.Proposal_Upload) ? d.Proposal_Upload : []).map(fileName).filter(Boolean),
+});
+let setupMem = null;
+async function dealSetup() {
+  if (setupMem && setupMem.exp > Date.now()) return setupMem.v;
+  const key = ZOHO.sandbox ? "deal_setup_sandbox" : "deal_setup";
+  const rows = await db("GET", `/zoho_cache?name=eq.${key}&select=value,expires_at`);
+  if (rows && rows[0] && new Date(rows[0].expires_at).getTime() > Date.now()) {
+    setupMem = { v: JSON.parse(rows[0].value), exp: new Date(rows[0].expires_at).getTime() };
+    return setupMem.v;
+  }
+  const [fields, layouts] = await Promise.all([zoho("GET", "/settings/fields?module=Deals"), zoho("GET", "/settings/layouts?module=Deals")]);
+  const picklists = {};
+  for (const f of fields.fields || []) {
+    if (PICKLIST_FIELDS.includes(f.api_name)) picklists[f.api_name] = (f.pick_list_values || []).map((p) => p.actual_value).filter((v) => v && v !== "-None-");
+  }
+  const lay = (layouts.layouts || []).find((l) => (l.name || "").trim().toLowerCase() === "service layout new");
+  const v = { picklists, layoutId: lay ? lay.id : null };
+  const exp = Date.now() + 6 * 3600000;
+  await db("POST", "/zoho_cache", { name: key, value: JSON.stringify(v), expires_at: new Date(exp).toISOString() }, "resolution=merge-duplicates");
+  setupMem = { v, exp };
+  return v;
+}
+let usersMem = null;
+async function zohoUserId(email) {
+  if (!usersMem || usersMem.exp < Date.now()) {
+    const j = await zoho("GET", "/users?type=ActiveUsers&per_page=200");
+    usersMem = { list: j.users || [], exp: Date.now() + 3600000 };
+  }
+  const u = usersMem.list.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase());
+  return u ? u.id : null;
+}
+// Duplicate guard (§9.5): the deal created for this quote, if any (its Description carries "[quote <id>]").
+async function findDealForQuote(quoteId) {
+  try {
+    const j = await zoho("POST", "/coql", { select_query: `select id from Deals where Description like '%[quote ${quoteId}]%' limit 1` });
+    const id = j.data && j.data[0] && j.data[0].id;
+    if (!id) return null;
+    const d = await zoho("GET", `/Deals/${id}?fields=${DEAL_FIELDS}`);
+    return (d.data || [])[0] || null;
+  } catch (e) { console.error("duplicate check skipped:", e.message); return null; }
 }
 const joinAddr = (...parts) => [...new Set(parts.map((p) => String(p || "").trim()).filter(Boolean))].join(", ");
 
@@ -318,6 +383,94 @@ export async function handle(req) {
       return reply(200, (j.data || []).map((c) => ({
         id: c.id, name: [c.First_Name, c.Last_Name].filter(Boolean).join(" "), title: c.Title || "", email: c.Email || "", phone: c.Mobile || c.Phone || "",
       })));
+    }
+
+    // ---------- Zoho CRM deals (SPEC §9) ----------
+    // Deal setup: required-field picklists + the "Service Layout New" layout id (cached 6 h per environment).
+    if (path === "/zoho/deal-setup" && req.method === "GET") return reply(200, await dealSetup());
+
+    // The account's Spare Parts deals (to link a proposal) + defaults for a new deal from its most recent one.
+    const ad = path.match(/^\/zoho\/accounts\/(\d{5,25})\/deals$/);
+    if (ad && req.method === "GET") {
+      const j = await zoho("GET", `/Accounts/${ad[1]}/Deals?fields=${DEAL_FIELDS}&per_page=200&sort_by=Modified_Time&sort_order=desc`);
+      const all = (j.data || []).filter((d) => d.Pipeline === "Spare Parts");
+      const last = all[0] || null;
+      return reply(200, {
+        deals: all.map(dealOut),
+        hasClosedWon: (j.data || []).some((d) => d.Stage === "Closed Won"),
+        defaults: last ? Object.fromEntries(DEFAULT_FIELDS.map((k) => [k, last[k] ?? null])) : null,
+      });
+    }
+
+    // Find a deal by its Deal No. (e.g. GC-07680).
+    if (path === "/zoho/deals/by-no" && req.method === "GET") {
+      const no = (new URL(req.url).searchParams.get("no") || "").trim().toUpperCase();
+      if (!/^[A-Z]{1,6}-?\d{2,10}$/.test(no)) return reply(400, { error: "Type a Deal No. like GC-07680." });
+      const j = await zoho("GET", `/Deals/search?criteria=${encodeURIComponent(`(Deal_No:equals:${no})`)}&fields=${DEAL_FIELDS},Account_Name`);
+      const d = (j.data || [])[0];
+      if (!d) return reply(404, { error: `No deal ${no} in Zoho.` });
+      return reply(200, { ...dealOut(d), accountId: d.Account_Name?.id || "", accountName: d.Account_Name?.name || "" });
+    }
+
+    // Create a deal (§9.3). The server sets pipeline, layout, stage, owner and the quote id for the duplicate guard.
+    if (path === "/zoho/deals" && req.method === "POST") {
+      const b = await readJson(req);
+      const quoteId = String(b.quoteId || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+      if (!quoteId) return reply(400, { error: "Missing quote id." });
+      // Duplicate guard (§9.5): a retry must not create a second deal for the same quote.
+      const dup = await findDealForQuote(quoteId);
+      if (dup) return reply(200, { ...dealOut(dup), existing: true });
+      const setup = await dealSetup();
+      const f = b.fields || {};
+      const missing = REQUIRED.filter((k) => f[k] === undefined || f[k] === null || f[k] === "" || (Array.isArray(f[k]) && !f[k].length));
+      if (!b.accountId) missing.unshift("Account_Name");
+      const ind = f.Business_Type === "Business-to-Consumer" ? "Industry_B2C" : "Industry_B2B";
+      if (!f[ind]) missing.push(ind);
+      if (missing.length) return reply(400, { error: "Missing: " + missing.join(", ") });
+      for (const [k, opts] of Object.entries(setup.picklists)) {     // values must match Zoho exactly
+        const vals = Array.isArray(f[k]) ? f[k] : f[k] == null || f[k] === "" ? [] : [f[k]];
+        const bad = vals.find((v) => !opts.includes(v));
+        if (bad !== undefined) return reply(400, { error: `"${bad}" is not a ${k} value in Zoho.` });
+      }
+      const record = {
+        Layout: setup.layoutId ? { id: setup.layoutId } : undefined,
+        Deal_Name: String(f.Deal_Name).slice(0, 120),
+        Pipeline: "Spare Parts", Stage: "Proposal/Price Quote", Lead_Creation: "Service",
+        Account_Name: { id: String(b.accountId) },
+        Contact_Name: b.contactId ? { id: String(b.contactId) } : undefined,
+        Type: f.Type, Business_Type: f.Business_Type, [ind]: f[ind],
+        SJK_Office_Location: f.SJK_Office_Location, Pick_List_6: f.Pick_List_6,
+        Amount: Number(f.Amount), GO_Chance: f.GO_Chance, GET_Chance: f.GET_Chance,
+        Street: f.Street, City: f.City, Closing_Date: f.Closing_Date,
+        Lead_Source: f.Lead_Source || undefined,
+        Description: `${String(f.Description || "").slice(0, 400)} [quote ${quoteId}]`,
+      };
+      const owner = await zohoUserId(me.email);
+      if (owner) record.Owner = { id: owner };
+      const created = await zoho("POST", "/Deals", { data: [record], trigger: ["workflow"] });
+      const r = (created.data || [])[0] || {};
+      if (r.code !== "SUCCESS") return reply(400, { error: "Zoho: " + zohoErr(r) });
+      const d = await zoho("GET", `/Deals/${r.details.id}?fields=${DEAL_FIELDS}`);
+      return reply(200, { ...dealOut((d.data || [])[0] || { id: r.details.id }), created: true, ownerSet: !!owner });
+    }
+
+    // Attach a proposal PDF to a deal's Proposal Upload field (adds; earlier versions stay).
+    const dp = path.match(/^\/zoho\/deals\/(\d{5,25})\/proposal$/);
+    if (dp && req.method === "POST") {
+      const b = await readJson(req, 15 * 1024 * 1024);
+      const name = String(b.fileName || "proposal.pdf").replace(/[\\/:*?"<>|]/g, "").slice(0, 150);
+      const bytes = Uint8Array.from(atob(String(b.pdfBase64 || "")), (c) => c.charCodeAt(0));
+      if (bytes.length < 100 || String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return reply(400, { error: "That is not a PDF." });
+      const form = new FormData();
+      form.append("file", new Blob([bytes], { type: "application/pdf" }), name);
+      const up = await zohoRaw("POST", "/files", form);
+      const fileId = up?.data?.[0]?.details?.id;
+      if (!fileId) return reply(502, { error: "Zoho: the PDF upload failed (" + zohoErr(up?.data?.[0] || up) + ")" });
+      const upd = await zoho("PUT", `/Deals/${dp[1]}`, { data: [{ Proposal_Upload: [{ file_id: fileId }] }] });
+      const r = (upd.data || [])[0] || {};
+      if (r.code !== "SUCCESS") return reply(400, { error: "Zoho: " + zohoErr(r) });
+      const d = await zoho("GET", `/Deals/${dp[1]}?fields=${DEAL_FIELDS}`);
+      return reply(200, { ...dealOut((d.data || [])[0] || { id: dp[1] }), fileId });
     }
 
     return reply(404, { error: "Not found" });

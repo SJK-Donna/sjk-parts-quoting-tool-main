@@ -181,7 +181,24 @@
         return request('GET', '/zoho/status').then(function (r) { return !!(r && r.configured); }, function () { return false; });
       },
       searchAccounts: function (word) { return request('GET', '/zoho/accounts?search=' + encodeURIComponent(word)).then(function (r) { return r || []; }); },
-      contacts: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/contacts').then(function (r) { return r || []; }); }
+      contacts: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/contacts').then(function (r) { return r || []; }); },
+      // Deals (SPEC §9)
+      dealSetup: function () { return request('GET', '/zoho/deal-setup'); },
+      accountDeals: function (accountId) { return request('GET', '/zoho/accounts/' + encodeURIComponent(accountId) + '/deals'); },
+      dealByNo: function (no) {
+        return request('GET', '/zoho/deals/by-no?no=' + encodeURIComponent(no)).then(function (r) { if (!r) throw new Error('No deal ' + no + ' in Zoho.'); return r; });
+      },
+      createDeal: function (payload) { return request('POST', '/zoho/deals', payload); },
+      attachProposal: function (dealId, fileName, blob) {
+        return new Promise(function (resolve, reject) {
+          var fr = new FileReader();
+          fr.onload = function () { resolve(String(fr.result).split(',')[1]); };
+          fr.onerror = function () { reject(new Error('Could not read the PDF.')); };
+          fr.readAsDataURL(blob);
+        }).then(function (b64) {
+          return request('POST', '/zoho/deals/' + encodeURIComponent(dealId) + '/proposal', { fileName: fileName, pdfBase64: b64 });
+        });
+      }
     }
   };
 })();
