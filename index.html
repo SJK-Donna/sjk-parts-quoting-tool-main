@@ -155,7 +155,7 @@ body.admin #signout{border-color:#e0965c;color:#f3d9c2}
 
 <section class="view" id="v-lock"><div class="lockbox"><div class="lk"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><h2 id="lockt">This section is locked</h2><p class="meta">Enter the password your manager gave you for this section.</p><form id="lockf"><input type="password" id="lockp" autocomplete="current-password" aria-label="Password"><button class="add">Unlock</button></form><p id="locke" class="meta" style="color:var(--mag)"></p></div></section>
 <section class="view" id="v-access"><div class="card" id="pwcard"></div>
- <div class="card" style="margin-top:18px"><h3>Who can do what</h3><p class="meta" style="margin-top:0">Share this page from Claude. Give the sales user <b>Viewer</b> access and send them the sales link (ends in <b>#find</b>). Give the costing admin <b>Editor</b> access and the admin link (ends in <b>#setup</b>). Only Editors can save costing or passwords, whatever page they open.</p></div></section>
+ <div class="card" style="margin-top:18px"><h3>Who can do what</h3><p class="meta" style="margin-top:0">Everyone signs in with their own email and password. <b>Admins</b> open in this admin console and can change costing and section passwords. <b>Sales</b> open in the sales tool (Find a part · Quote) and can’t open the admin console. To add people or change who is admin, use Supabase: <b>Authentication → Users</b> to add an account, <b>Table Editor → profiles</b> to set the role.</p></div></section>
 <section class="view about" id="v-data">
  <h2 style="font-size:28px;margin-bottom:10px">Parts data</h2>
  <p>Prices come from Club Car's dealer price quotes for SJK Guahan (dated 9 Aug 2026, USD, "Unit Price" = SJK's buy price) and the 2025 Minibus Complete Spare Parts Catalogue (FCA China, valid 1 Dec 2025 – 31 Dec 2026). Cart fitment comes from the parts-book upload lists in each model folder.</p>
@@ -311,7 +311,7 @@ const FORM=[
 ];
 function renderSetup(){
  const dis=readOnly?'disabled':'';
- $('#setmsg').innerHTML=readOnly?`<div class="note">You can view the costing but only editors of this page (e.g. James) can change it. Costs everyone sees come from these settings.</div>`:(shared?`<div class="note">Changes here apply to everyone using this tool once you press Save.</div>`:`<div class="warn">Shared settings aren't reachable right now, so changes save on this device only.</div>`);
+ $('#setmsg').innerHTML=readOnly?`<div class="note">You can view the costing, but only admins can change it. Every price in the tool comes from these settings.</div>`:(shared?`<div class="note">Changes here apply to everyone using this tool once you press Save.</div>`:`<div class="warn">Shared costing is off: the parts-api server hasn’t been deployed yet or can’t be reached. Changes you save here stay on this device only — other people won’t see them.</div>`);
  $('#sform').innerHTML=FORM.map(([t,fs])=>`<div class="card"><h3>${t}</h3>${fs.map(([k,l,h,st,ty])=>`<div class="f"><label for="s_${k}">${l}${h?`<small>${h}</small>`:''}</label>${
   ty==='basis'?`<select id="s_${k}" data-s="${k}" ${dis}><option value="pct" ${S[k]==='pct'?'selected':''}>% of buy price</option><option value="kg" ${S[k]==='kg'?'selected':''}>USD per kg</option></select>`:
   ty==='bool'?`<input type="checkbox" id="s_${k}" data-s="${k}" ${S[k]?'checked':''} ${dis} style="width:24px;height:24px;justify-self:end">`:
@@ -330,13 +330,13 @@ function readForm(){
 }
 function renderPw(){
  const can=!!db&&shared&&!readOnly,keepMsg=$('#pwst')?.textContent||'';
- $('#pwcard').innerHTML=`<h3>Section passwords</h3><p class="meta" style="margin-top:0">${can?'<b>Find a part</b> and <b>Quote</b> make up the sales tool. <b>Admin console</b> covers Costing setup, Passwords and Parts data. People are asked once per browser session. Editors of this page are never asked.':readOnly?'Only editors of this page can set passwords.':'Passwords need the shared settings, which are not reachable right now.'}</p>`+
+ $('#pwcard').innerHTML=`<h3>Section passwords</h3><p class="meta" style="margin-top:0">${can?'<b>Find a part</b> and <b>Quote</b> make up the sales tool. <b>Admin console</b> covers Costing setup, Passwords and Parts data. Sales are asked once per browser session. Admins are never asked.':readOnly?'Only admins can set passwords.':'Section passwords need shared costing, which is off until the parts-api server is deployed.'}</p>`+
  Object.entries(SECS).map(([k,n])=>`<div class="pwrow"><b>${n}</b><span class="st ${LOCKS[k]?'on':''}">${LOCKS[k]?'Locked':'Open — no password'}</span>${can?`<input type="password" id="pw_${k}" placeholder="New password (min 4 characters)" autocomplete="new-password" aria-label="New password for ${n}"><button class="add" data-setpw="${k}">${LOCKS[k]?'Change':'Set'}</button><button class="add ghost" data-clrpw="${k}" ${LOCKS[k]?'':'disabled'}>Remove</button>`:''}</div>`).join('')+`<p class="meta" id="pwst"></p>`;
  $('#pwst').textContent=keepMsg;
 }
 async function writeLocks(n){
  try{await db.doc('settings/locks').set(n);LOCKS=n;ls.set('sjk_locks',n);renderPw();return true}
- catch(e){$('#pwst').textContent=e&&e.code==='invalid_argument'?'Only editors can change passwords.':'Could not save — try again.';return false}
+ catch(e){$('#pwst').textContent=e&&e.code==='invalid_argument'?'Only admins can change passwords.':'Could not save — try again.';return false}
 }
 $('#pwcard').addEventListener('click',async e=>{
  const s=e.target.closest('[data-setpw]'),c=e.target.closest('[data-clrpw]');
@@ -361,15 +361,15 @@ async function saveSettings(){
  if(db&&!readOnly){
   $('#savest').textContent='Saving…';
   try{const body={...n,updatedAt:new Date().toISOString()};await db.doc('settings/current').set(body);meta.updatedAt=body.updatedAt;msg='Saved for everyone ✓'}
-  catch(e){if(e&&e.code==='invalid_argument'){readOnly=true;msg='Only editors can change costing.'}else{ls.set('sjk_settings',n);msg='Could not reach shared settings — saved on this device.'}}
- }else{ls.set('sjk_settings',n);msg='Saved on this device ✓'}
+  catch(e){if(e&&e.code==='invalid_argument'){readOnly=true;msg='Only admins can change costing.'}else{ls.set('sjk_settings',n);msg='Could not reach the server — saved on this device only.'}}
+ }else{ls.set('sjk_settings',n);msg='Saved on this device only ✓'}
  renderAll();if(readOnly)renderSetup();
  $('#savest').textContent=msg;   // after the redraw, so the confirmation stays visible
 }
 
 /* ---------- shell ---------- */
 function renderHeader(){
- $('#fxchip').innerHTML=`Forex <b>₱${rate().toFixed(2)}</b>/USD · margin <b>${S.margin}%</b> · ${shared?'shared costing':'local costing'}`;
+ $('#fxchip').innerHTML=`Forex <b>₱${rate().toFixed(2)}</b>/USD · margin <b>${S.margin}%</b> · ${shared?'shared costing':'costing on this device only'}`;
  $$('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.mode===mode));
 }
 function renderAll(){if(!D)return;renderHeader();
@@ -445,7 +445,7 @@ if(local)S={...DEF,...local,kg:{...KG,...(local.kg||{})}};
  if(B&&canEdit===true&&!location.hash.slice(1))history.replaceState(null,'','#setup');   // admins land in the admin console
  if(!db){readOnly=canEdit===false;route();renderAll();return}   // signed-in sales stay read-only on costing
  readOnly=canEdit===false;shared=true;
- let timer=setTimeout(()=>{$('#savest').textContent='Shared settings are slow to load — showing the last known values.'},10000);
+ let timer=setTimeout(()=>{$('#savest').textContent='The server is slow to answer — showing the last saved costing.'},10000);
  db.doc('settings/locks').onSnapshot(s=>{
   if(s.exists){LOCKS={...s.data()}}else if(!s.metadata.fromCache){LOCKS={}}
   ls.set('sjk_locks',LOCKS);route();renderAll();
